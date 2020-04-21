@@ -3,6 +3,7 @@
 import numpy as np 
 import math as mt
 from scipy import stats
+from scipy.interpolate import InterpolatedUnivariateSpline
 from matplotlib import path
 from matplotlib import pyplot
 
@@ -14,6 +15,7 @@ class KDE:
         self.Xaxis = [None]*self.nb_dim
         self.Yaxis = [None]*self.nb_dim
         self.KDE = [None]*self.nb_dim
+        self.Dist = [None]*self.nb_dim
         for i in range(self.nb_dim):
             self.datasets[i] = [X[:,i],Y[:,i]]
     
@@ -65,24 +67,35 @@ class KDE:
             dim = range(self.nb_dim)
         elif np.max(dim) > self.nb_dim:
             raise Exception('Dimension outside of possibilities: max = {} (input = {})'.format(self.nb_dim,np.max(dim)))
-        if not(Xvals is None) and (len(Xvals) < self.nb_dim):
+        if (Xvals is not None) and (len(Xvals) < self.nb_dim):
             raise Exception('Xvals is not compatible with the current datasets')
         for i in dim:
             # Printing the KDE on a graph
-            if not(self.KDE[i] is None):
+            if (self.KDE[i] is not None):
                 X_KDE, Y_KDE = np.meshgrid(self.Xaxis[i],self.Yaxis[i])
-                pyplot.figure()
-                pyplot.pcolormesh(self.KDE[i],X_KDE,Y_KDE)
-                pyplot.title('Dimension {}'.format(i))
-                pyplot.xlabel('D^c_{}'.format(i))
-                pyplot.ylabel('M^c_{}'.format(i))
-                if not(Xvals is None):
-                    pyplot.plot([Xvals[i],Xvals[i]],np.asarray(pyplot.ylim))
+                fig, ax = pyplot.subplots()
+                ax.pcolormesh(self.KDE[i],X_KDE,Y_KDE)
+                ax.title('Dimension {}'.format(i))
+                ax.xlabel('D^c_{}'.format(i))
+                ax.ylabel('M^c_{}'.format(i))
+                if (Xvals is not None):
+                    ax.plot([Xvals[i],Xvals[i]],np.asarray(pyplot.ylim))
+                    if (self.Dist[i] is not None):
+                        # Add graph on the left with KDE distribution for Xvals
+                        pyplot.subplots_adjust(left=0.4)
+                        ax_hist = pyplot.axes([0.1, 0.1, 0.2, 0.8])
+                        ax_hist.plot(self.Dist[i][1],self.Dist[i][0])
+                        ax_hist.xlabel('P (/)')
+                        ax_hist.ylabel('M^c_{}'.format(i))
                 pyplot.show()
             else:
                 raise Exception('No KDE field at dimension {}'.format(i))
 
     def GetDist(self,Xvals=[0],dim=None,Noise=None):
+        # Adds a list Dist to self:
+        #   - Dist[0]=YVect
+        #   - Dist[1]=KDE (normalized)
+        #   - Dist[2]=CDF (corresponding to KDE, for sampler)
         # Handling exceptions:
         if dim is None:
             dim = range(self.nb_dim)
@@ -90,7 +103,7 @@ class KDE:
             raise Exception('Dimension outside of possibilities: max = {} (input = {})'.format(self.nb_dim,dim))
         if (Xvals is None) or (len(Xvals) < self.nb_dim):
             raise Exception('Xvals is not compatible with the current datasets')
-        if not(Noise is None) and (len(Noise) < self.nb_dim):
+        if (Noise is not None) and (len(Noise) < self.nb_dim):
             raise Exception('Noise is not compatible with the current datasets')
         # Initializing
         Dist = [None]*self.nb_dim
@@ -107,10 +120,15 @@ class KDE:
                 idx = np.searchsorted(self.Xaxis[i],Xvals[i],side='left')# Find the first index that is greater than the value
                 if Xvals[i]==self.Xaxis[i][idx]:
                     # Exact value:
-                    Dist[i] = [[self.Yaxis[i]], [self.KDE[i][idx,:]]]
+                    KDE = self.KDE[i][idx,:]
+                    KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
+                    CDF = np.trapz(KDE,self.Yaxis[i])
+                    Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
                 else:
                     KDE = self.KDE[i][idx-1,:] + ((self.KDE[i][idx,:]-self.KDE[i][idx-1,:])/(self.Xaxis[i][idx]-self.Xaxis[i][idx-1]))*(Xvals[i]-self.Xaxis[i][idx-1])
-                    Dist[i] = [[self.Yaxis[i]], [KDE]]
+                    KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
+                    CDF = np.trapz(KDE,self.Yaxis[i])
+                    Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
         else:
             for i in dim:
                 KDE_tmp = np.zeros_like(self.KDE[i][1,:])
@@ -125,8 +143,23 @@ class KDE:
                     else:
                         KDE_tmp += self.KDE[i][idx-1,:] + ((self.KDE[i][idx,:]-self.KDE[i][idx-1,:])/(self.Xaxis[i][idx]-self.Xaxis[i][idx-1]))*(r[j]-self.Xaxis[i][idx-1])
                 KDE = np.divide(KDE_tmp,samples)
-                Dist[i] = [[self.Yaxis[i]], [KDE]]
-        return Dist
-                
+                KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
+                CDF = np.trapz(KDE,self.Yaxis[i])
+                Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
+        self.Dist = Dist
+    
+    def SampleKDE(self,nbSample=1000,dim=None):
+        if self.Dist[0] is None:
+            raise Exception('Sample first the distribution!')
+        if dim is None:
+            dim = range(self.nb_dim)
+        elif dim > self.nb_dim:
+            raise Exception('Dimension outside of possibilities: max = {} (input = {})'.format(self.nb_dim,dim))
+        distUnif = stats.uniform()
+        Samples = np.asarray(distUnif.rvs(nbSample*len(dim))).reshape(nbSample,len(dim))
+        for i in range(len(dim)):
+            InvCDFs = InterpolatedUnivariateSpline(self.Dist[dim[i]][2],self.Dist[dim[i]][0],bbox=[0, 1])
+            Samples[:,i] = InvCDFs(Samples[:,i])
+        return Samples
 
         
