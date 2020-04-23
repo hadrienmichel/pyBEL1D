@@ -37,6 +37,6 @@ def Sampling(prior,conditions=None,nbModels=1000):
     # Return the sampled models
     return Models
 
-def PropagateNoise(POSTBEL:POSTBEL,NoiseModel):
+def PropagateNoise(POSTBEL,NoiseModel):
     Noise = 0
     return Noise
