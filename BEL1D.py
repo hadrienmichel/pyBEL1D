@@ -12,10 +12,10 @@ from sklearn import decomposition, cross_decomposition
 from scipy import stats
 
 # TODO:
-#   - Add conditions (function for checking that samples are within a given space)
-#   - Add Noise propagation
+#   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
+#   - Add Noise propagation (work in progress 29/04/20)
 #   - Add DC example
-#   - Add posprocessing
+#   - Add postprocessing
 
 class MODELSET:
 
@@ -70,6 +70,8 @@ class MODELSET:
         NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        Mins = np.zeros(((nLayer*nParam)-1,))
+        Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = [" [m]", " [/]", " [s]"]
         NFull = ["Thickness","Water Content","Relaxation Time"]
         NShort = ["e_{", "W_{", "T_{2,"]
@@ -78,17 +80,20 @@ class MODELSET:
             for i in range(nLayer):
                 if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
                     ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                    Mins[ident] = prior[i,j*2]
+                    Maxs[ident] = prior[i,j*2+1]
                     NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
                     NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
                     NamesShort[ident] = NShort[j] + str(i+1) + "}"
                     ident += 1
-        method = "SNMR"
+        method = "sNMR"
         paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["e_i", "W_i", "T_{2,i}"]}
         KFile = sNMR.MRS()
         KFile.loadKernel(Kernel)
         ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
         forwardFun = lambda model: ModellingMethod.response(model)
-        cond = None
+        forward = {"Fun":forwardFun,"Axis":Timing}
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forwardFun,paramNames=paramNames)
 
 
@@ -149,7 +154,7 @@ class PREBEL:
         tmp = self.MODPARAM.forwardFun(self.MODELS[0,:])
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
         for i in range(self.nbModels):
-            self.FORWARD[i,:] = self.MODPARAM.forwardFun(self.MODELS[i,:])
+            self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
         # 3) PCA on data (and optionally model):
         reduceModels = False
         if reduceModels:
@@ -185,6 +190,8 @@ class POSTBEL:
                                         PREBEL class
     """
     def __init__(self,PREBEL:PREBEL):
+        self.nbModels = PREBEL.nbModels
+        self.FORWARD_PRIOR = PREBEL.FORWARD
         self.KDE = PREBEL.KDE
         self.PCA = PREBEL.PCA
         self.CCA = PREBEL.CCA
@@ -208,17 +215,45 @@ class POSTBEL:
         if Graphs:
             self.KDE.ShowKDE(Xvals=d_obs_c)
         # Sample models:
-        samples_CCA = self.KDE.SampleKDE(nbSample=1000)
-        # Back transform models to original space:
-        samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
-        samples_PCA *= self.CCA.y_std_
-        samples_PCA += self.CCA.y_mean_
-        # samples_PCA = self.CCA.inverse_transform(samples_CCA)
-        if self.PCA['Model'] is None:
-            samples_Init = samples_PCA 
-        else:
-            samples_Init = self.PCA['Model'].inverse_transform(samples_PCA)
-        self.SAMPLES = samples_Init
+        if self.MODPARAM.cond is None:
+            samples_CCA = self.KDE.SampleKDE(nbSample=nbSamples)
+            # Back transform models to original space:
+            samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
+            samples_PCA *= self.CCA.y_std_
+            samples_PCA += self.CCA.y_mean_
+            # samples_PCA = self.CCA.inverse_transform(samples_CCA)
+            if self.PCA['Model'] is None:
+                samples_Init = samples_PCA 
+            else:
+                samples_Init = self.PCA['Model'].inverse_transform(samples_PCA)
+            self.SAMPLES = samples_Init
+        else: # They are conditions to respect!
+            nbParam = len(self.MODPARAM.prior)
+            Samples = np.zeros((nbSamples,nbParam))
+            achieved = False
+            modelsOK = 0
+            while not(achieved):
+                samples_CCA = self.KDE.SampleKDE(nbSample=(nbSamples-modelsOK))
+                # Back transform models to original space:
+                samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
+                samples_PCA *= self.CCA.y_std_
+                samples_PCA += self.CCA.y_mean_
+                # samples_PCA = self.CCA.inverse_transform(samples_CCA)
+                if self.PCA['Model'] is None:
+                    Samples[modelsOK:,:] = samples_PCA 
+                else:
+                    Samples[modelsOK:,:] = self.PCA['Model'].inverse_transform(samples_PCA)
+                keep = np.ones((nbSamples,))
+                for i in range(nbSamples-modelsOK):
+                    keep[modelsOK+i] = self.MODPARAM.cond(Samples[modelsOK+i,:])
+                indexKeep = np.where(keep)
+                modelsOK = np.shape(indexKeep)[1]
+                tmp = np.zeros((nbSamples,nbParam))
+                tmp[range(modelsOK),:] = np.squeeze(Samples[indexKeep,:])
+                Samples = tmp
+                if modelsOK == nbSamples:
+                    achieved = True
+            self.SAMPLES = Samples
 
     def ShowPost(self,TrueModel=None):
         nbParam = self.SAMPLES.shape[1]
