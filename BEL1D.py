@@ -94,7 +94,7 @@ class MODELSET:
         forwardFun = lambda model: ModellingMethod.response(model)
         forward = {"Fun":forwardFun,"Axis":Timing}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
-        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forwardFun,paramNames=paramNames)
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames)
 
 
 class PREBEL:
