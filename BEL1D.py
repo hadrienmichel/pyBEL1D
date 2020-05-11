@@ -10,12 +10,14 @@ from matplotlib import pyplot
 import sklearn
 from sklearn import decomposition, cross_decomposition
 from scipy import stats
+import multiprocessing as mp 
+
 
 # TODO:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
-#   - Add Noise propagation (work in progress 29/04/20)
-#   - Add DC example
-#   - Add postprocessing
+#   - Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC to do)
+#   - Add DC example (done 11/05/20 - uses pysurf96 for forward modelling: https://github.com/miili/pysurf96)
+#   - Add postprocessing (partially done - need for models viewer)
 
 class MODELSET:
 
@@ -96,6 +98,69 @@ class MODELSET:
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames)
 
+    @classmethod
+    def DC(cls,prior=None,Frequency=None):
+        """DC is a class method that generates a MODELSET class object for DC.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space 
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, Vs_1_min, Vs_1_max, Vp_1_min, Vp_1_max, rho_1_min, rho_1_max],
+                               [e_2_min, ...                                                     ..., rho_2_max],
+                               [:        ...                                                     ...          :],
+                               [e_nLay-1_min, ...                                           ..., rho_nLay-1_max],
+                               [0, 0, Vs_nLay_min, ...                                        ..., rho_nLay_max]]
+
+                               It has 8 columns and nLay lines, nLay beiing the number of 
+                               layers in the model.
+            
+            - Frequency (array): a numpy array containing the frequencies for the dataset simulation.
+
+            By default, all inputs are None and this generates the example sNMR case.
+        """
+        from pysurf96 import surf96
+        import numpy.matlib
+        if prior is None:
+            prior = np.array([[2.5, 7.5, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
+            Frequency = np.linspace(1,50,50)
+        nLayer, nParam = prior.shape
+        nParam /= 2
+        nParam = int(nParam)
+        prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        Mins = np.zeros(((nLayer*nParam)-1,))
+        Maxs = np.zeros(((nLayer*nParam)-1,))
+        Units = [" [m]", " [km/s]", " [km/s]", " [T/m^3]"]
+        NFull = ["Thickness","s-Wave velocity","p-Wave velocity", "Density"]
+        NShort = ["e_{", "Vs_{", "Vp_{", "\\rho_{"]
+        ident = 0
+        for j in range(nParam):
+            for i in range(nLayer):
+                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                    Mins[ident] = prior[i,j*2]
+                    Maxs[ident] = prior[i,j*2+1]
+                    NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                    NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                    NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                    ident += 1
+        method = "DC"
+        Periods = np.divide(1,Frequency)
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["e_i", "Vs_i", "Vp_i", "\\rho_i"]}
+        forwardFun = lambda model: surf96(thickness=np.squeeze([model[0:nLayer-1], [0]]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forward = {"Fun":forwardFun,"Axis":Periods}
+        def PoissonRatio(model):
+            vp=model[2*nLayer-1:3*nLayer-1]
+            vs=model[nLayer-1:2*nLayer-1]
+            ratio = 1/2 * (np.power(vp,2) - 2*np.power(vs,2))/(np.power(vp,2)-np.power(vs,2))
+            return ratio
+        RatioMin = [0.1]*nLayer
+        RatioMax = [0.5]*nLayer
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater_equal(PoissonRatio(model),RatioMin),np.less_equal(PoissonRatio(model),RatioMax))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames)
 
 class PREBEL:
     """Object that is used to store the PREBEL elements:
@@ -144,6 +209,14 @@ class PREBEL:
 
         It is an instance method that does not need any arguments.
         """
+
+        # def RunForward(model):
+        #     try:
+        #         tmp = self.MODPARAM.forwardFun["Fun"](model)
+        #     except:
+        #         tmp = None
+        #     return tmp
+
         # 1) Sampling (if not done already):
         if self.nbModels is None:
             self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS)
@@ -151,10 +224,48 @@ class PREBEL:
         else:
             self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS,self.nbModels)
         # 2) Running the forward model
-        tmp = self.MODPARAM.forwardFun(self.MODELS[0,:])
+        # For DC, sometimes, the code will return an error --> need to remove the model from the prior
+        indexCurr = 0
+        # fun = self.MODPARAM.forwardFun["Fun"]
+        while True:
+            # modelCurr = self.MODELS[indexCurr,:]
+            # p = mp.Process(target=RunForward,args=(fun,modelCurr))
+            # p.start()
+            # p.join(timeout=60)# 1 min max for the process
+            # p.terminate()
+            # if p.exitcode is None:
+            #     indexCurr += 1
+            # else:
+            #     tmp = p.exitcode
+            try:
+                tmp = self.MODPARAM.forwardFun["Fun"](self.MODELS[indexCurr,:])
+                break
+            except:
+                indexCurr += 1
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
+        notComputed = []
         for i in range(self.nbModels):
-            self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
+            # print(i)
+            try:
+                self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
+            except:
+                self.FORWARD[i,:] = [None]*len(tmp)
+                notComputed.append(i)
+            # modelCurr = self.MODELS[i,:]
+            # p = mp.Process(target=RunForward,args=(fun,modelCurr))
+            # p.start()
+            # p.join(timeout=60)# 1 min max for the process
+            # p.terminate()
+            # if p.exitcode is None:
+            #     self.FORWARD[i,:] = [None]*len(tmp)
+            # else:
+            #     self.FORWARD[i,:] = p.exitcode
+        # Getting the uncomputed models and removing them:
+        self.MODELS = np.delete(self.MODELS,notComputed,0)
+        self.FORWARD = np.delete(self.FORWARD,notComputed,0)
+        newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+        print('{} models remaining after forward modelling!'.format(newModelsNb))
+        self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         reduceModels = False
         if reduceModels:
@@ -269,3 +380,9 @@ class POSTBEL:
             pyplot.show(block=False)
         pyplot.show()
     
+def RunForward(fun,model):
+    try:
+        tmp = fun(model)
+    except:
+        tmp = None
+    return tmp

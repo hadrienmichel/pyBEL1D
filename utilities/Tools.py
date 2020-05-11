@@ -45,7 +45,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
     import numpy as np 
     TypeMod = POSTBEL.MODPARAM.method
     dim = POSTBEL.CCA.x_scores_.shape[1] # Number of dimensions for noise propagation
-    dimD = POSTBEL.PCA.n_components_
+    dimD = POSTBEL.PCA["Data"].n_components_
     Noise = [0]*dim
     if TypeMod is "sNMR": # Modeling Gaussian Noise (noise is an int)
         if not(isinstance(NoiseLevel,int)):
@@ -58,13 +58,13 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD_PRIOR[index,:] 
-        dataNoisy = data + Noise*np.random.randn(nbTest,POSTBEL.FORWARD_PRIOR.shape[1])
+        dataNoisy = data + NoiseLevel*np.random.randn(nbTest,POSTBEL.FORWARD_PRIOR.shape[1])
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):
-           COV_diff[i,:,:] = np.cov([[scoreData[i,:]],[scoreDataNoisy[i,:]]])
+           COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
         Cf = np.squeeze(np.max(COV_diff,axis=0))
-        Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_.T
+        Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     elif TypeMod is "DC":
         if not(isinstance(NoiseLevel),list):
@@ -80,9 +80,9 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):
-           COV_diff[i,:,:] = np.cov([[scoreData[i,:]],[scoreDataNoisy[i,:]]])
+           COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
         Cf = np.squeeze(np.max(COV_diff,axis=0))
-        Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_.T
+        Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     else:
         raise RuntimeWarning('No noise propagation defined for the gievn method!')
