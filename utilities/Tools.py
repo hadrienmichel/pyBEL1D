@@ -67,7 +67,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     elif TypeMod is "DC":
-        if not(isinstance(NoiseLevel),list):
+        if not(isinstance(NoiseLevel,list)):
             print('Noise must be in the form of a list! Converted to default value of 10 nV!')
             NoiseLevel = [0.05, 100]
         # Propagating Noise:
@@ -76,7 +76,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD_PRIOR[index,:] 
-        dataNoisy = data + Noise[0]*(np.random.randn(nbTest,1)*data + POSTBEL.MODPARAM.forwardFun["Axis"]/Noise[1])
+        dataNoisy = data + NoiseLevel[0]*(np.random.randn(nbTest,1)*data + POSTBEL.MODPARAM.forwardFun["Axis"]/NoiseLevel[1])
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):

@@ -46,8 +46,9 @@ class KDE:
             band = j
             # Defing some lambda functions
             # 2D gaussian pdf:
-            z = lambda x,y,X,Y,b: ((x-X)**2)/(b**2) + ((y-Y)**2)/(b**2) - (2*(x-X)*(y-Y)/(b*b))
-            pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
+            # TODO: Vectorize this computation:
+            # z = lambda x,y,X,Y,b: ((x-X)**2)/(b**2) + ((y-Y)**2)/(b**2) - (2*(x-X)*(y-Y)/(b*b))
+            # pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
             # Circle of points search: 
             # circle = lambda X,Y,b: np.column_stack(((4*b*np.cos(th) + X), (4*b*np.sin(th) + Y)))
             self.Xaxis[i] = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
@@ -63,8 +64,13 @@ class KDE:
                     if np.sum(impacts)>0:
                         idxImpacts = np.where(impacts)
                         idxImpacts = idxImpacts[0]
-                        for j in np.arange(len(idxImpacts)):
-                            KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                        # Test for vectorization:
+                        z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
+                        pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
+                        KDE[x_idx,y_idx] += np.sum(pdf)
+                        # End- test for vectorization
+                        # for j in np.arange(len(idxImpacts)):
+                        #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
                         y_idx += 1
                     else:
                         y_idx += 1                    

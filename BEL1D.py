@@ -15,9 +15,14 @@ import multiprocessing as mp
 
 # TODO:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
-#   - Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC to do)
-#   - Add DC example (done 11/05/20 - uses pysurf96 for forward modelling: https://github.com/miili/pysurf96)
+#   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
+#   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96)
 #   - Add postprocessing (partially done - need for models viewer)
+#   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
+#   - (Done on 13/05/2020) Add support for iterations
+#   - Add iteration convergence critereon!
+#   - Lower the memory needs (how? not urgent)
+#   - Comment the codes!
 
 class MODELSET:
 
@@ -57,17 +62,23 @@ class MODELSET:
             - Timing (array): a numpy array containing the timings for the dataset simulation.
 
             By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in m
+                - Water content (w) in m^3/m^3
+                - Decay time (T_2^*) in sec
+
         """
         from pygimli.physics import sNMR
         import numpy.matlib
         if prior is None:
-            prior = np.array([[2.5, 7.5, 3.5, 10, 5, 350], [0, 0, 10, 30, 5, 350]])
+            prior = np.array([[2.5, 7.5, 0.035, 0.10, 0.005, 0.350], [0, 0, 0.10, 0.30, 0.005, 0.350]])
             Kernel = "Data/sNMR/KernelTest.mrsk"
             Timing = np.arange(0.005,0.5,0.001)
         nLayer, nParam = prior.shape
         nParam /= 2
         nParam = int(nParam)
-        prior = np.multiply(prior,np.matlib.repmat(np.array([1, 1, 1/100, 1/100, 1/1000, 1/1000]),nLayer,1))
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1, 1, 1/100, 1/100, 1/1000, 1/1000]),nLayer,1))
         ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
@@ -117,16 +128,22 @@ class MODELSET:
             - Frequency (array): a numpy array containing the frequencies for the dataset simulation.
 
             By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in km
+                - S-wave velocity (Vs) in km/sec
+                - P-wave velocity (Vp) in km/sec
+                - Density (rho) in T/m^3
         """
         from pysurf96 import surf96
         import numpy.matlib
         if prior is None:
-            prior = np.array([[2.5, 7.5, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
+            prior = np.array([[0.0025, 0.0075, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
             Frequency = np.linspace(1,50,50)
         nLayer, nParam = prior.shape
         nParam /= 2
         nParam = int(nParam)
-        prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
         ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
@@ -210,13 +227,6 @@ class PREBEL:
         It is an instance method that does not need any arguments.
         """
 
-        # def RunForward(model):
-        #     try:
-        #         tmp = self.MODPARAM.forwardFun["Fun"](model)
-        #     except:
-        #         tmp = None
-        #     return tmp
-
         # 1) Sampling (if not done already):
         if self.nbModels is None:
             self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS)
@@ -226,17 +236,7 @@ class PREBEL:
         # 2) Running the forward model
         # For DC, sometimes, the code will return an error --> need to remove the model from the prior
         indexCurr = 0
-        # fun = self.MODPARAM.forwardFun["Fun"]
         while True:
-            # modelCurr = self.MODELS[indexCurr,:]
-            # p = mp.Process(target=RunForward,args=(fun,modelCurr))
-            # p.start()
-            # p.join(timeout=60)# 1 min max for the process
-            # p.terminate()
-            # if p.exitcode is None:
-            #     indexCurr += 1
-            # else:
-            #     tmp = p.exitcode
             try:
                 tmp = self.MODPARAM.forwardFun["Fun"](self.MODELS[indexCurr,:])
                 break
@@ -251,15 +251,6 @@ class PREBEL:
             except:
                 self.FORWARD[i,:] = [None]*len(tmp)
                 notComputed.append(i)
-            # modelCurr = self.MODELS[i,:]
-            # p = mp.Process(target=RunForward,args=(fun,modelCurr))
-            # p.start()
-            # p.join(timeout=60)# 1 min max for the process
-            # p.terminate()
-            # if p.exitcode is None:
-            #     self.FORWARD[i,:] = [None]*len(tmp)
-            # else:
-            #     self.FORWARD[i,:] = p.exitcode
         # Getting the uncomputed models and removing them:
         self.MODELS = np.delete(self.MODELS,notComputed,0)
         self.FORWARD = np.delete(self.FORWARD,notComputed,0)
@@ -290,6 +281,64 @@ class PREBEL:
         # 5) KDE:
         self.KDE = KDE(d_c,m_c)
         self.KDE.KernelDensity()
+    
+    @classmethod
+    def POSTBEL2PREBEL(cls,POSTBEL):
+        # 1) Initialize the Prebel class object
+        Modelset = POSTBEL.MODPARAM # A MODELSET class object
+        PrebelNew = cls(Modelset)
+        # 2) Inject the samples from postbel
+        PrebelNew.MODELS = POSTBEL.SAMPLES
+        PrebelNew.nbModels = np.size(POSTBEL.SAMPLES,axis=0) # Get the number of sampled models
+        # 2) Running the forward model
+        # For DC, sometimes, the code will return an error --> need to remove the model from the prior
+        indexCurr = 0
+        while True:
+            try:
+                tmp = PrebelNew.MODPARAM.forwardFun["Fun"](PrebelNew.MODELS[indexCurr,:])
+                break
+            except:
+                indexCurr += 1
+        PrebelNew.FORWARD = np.zeros((PrebelNew.nbModels,len(tmp)))
+        notComputed = []
+        for i in range(PrebelNew.nbModels):
+            # print(i)
+            try:
+                PrebelNew.FORWARD[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](PrebelNew.MODELS[i,:])
+            except:
+                PrebelNew.FORWARD[i,:] = [None]*len(tmp)
+                notComputed.append(i)
+        # Getting the uncomputed models and removing them:
+        PrebelNew.MODELS = np.delete(PrebelNew.MODELS,notComputed,0)
+        PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,notComputed,0)
+        newModelsNb = np.size(PrebelNew.MODELS,axis=0) # Get the number of models remaining
+        print('{} models remaining after forward modelling!'.format(newModelsNb))
+        PrebelNew.nbModels = newModelsNb
+        # 3) PCA on data (and optionally model):
+        reduceModels = False
+        if reduceModels:
+            pca_model = sklearn.decomposition.PCA(n_components=0.9) # Keeping 90% of the variance
+            m_h = pca_model.fit_transform(PrebelNew.MODELS)
+            n_CompPCA_Mod = m_h.shape[1]
+            # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
+            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            PrebelNew.PCA = {'Data':pca_data,'Model':pca_model}
+        else:
+            m_h = PrebelNew.MODELS # - np.mean(self.MODELS,axis=0)
+            n_CompPCA_Mod = m_h.shape[1]
+            #n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
+            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            PrebelNew.PCA = {'Data':pca_data,'Model':None}
+        # 4) CCA:
+        cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
+        d_c,m_c = cca_transform.fit_transform(d_h,m_h)
+        PrebelNew.CCA = cca_transform
+        # 5) KDE:
+        PrebelNew.KDE = KDE(d_c,m_c)
+        PrebelNew.KDE.KernelDensity()
+        return PrebelNew
         
 class POSTBEL:
     """Object that is used to store the POSTBEL elements:
@@ -309,6 +358,7 @@ class POSTBEL:
         self.MODPARAM = PREBEL.MODPARAM
         self.DATA = dict()
         self.SAMPLES = []
+        self.SAMPLESDATA = []
 
     def run(self,Dataset,nbSamples=1000,Graphs=False,NoiseModel=None):
         # Transform dataset to CCA space:
@@ -366,6 +416,31 @@ class POSTBEL:
                     achieved = True
             self.SAMPLES = Samples
 
+    def DataPost(self):
+        indexCurr = 0
+        while True:
+            try:
+                tmp = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[indexCurr,:])
+                break
+            except:
+                indexCurr += 1
+        self.SAMPLESDATA = np.zeros((self.nbModels,len(tmp)))
+        notComputed = []
+        for i in range(self.nbModels):
+            # print(i)
+            try:
+                self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
+            except:
+                self.SAMPLESDATA[i,:] = [None]*len(tmp)
+                notComputed.append(i)
+        # Getting the uncomputed models and removing them:
+        self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
+        self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
+        newModelsNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        print('{} models remaining after forward modelling!'.format(newModelsNb))
+        self.nbModels = newModelsNb
+        return self.SAMPLESDATA
+
     def ShowPost(self,TrueModel=None):
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
@@ -379,10 +454,9 @@ class POSTBEL:
                 ax.plot([TrueModel[i],TrueModel[i]],np.asarray(ax.get_ylim()),'r')
             pyplot.show(block=False)
         pyplot.show()
+
+    def GetStats(self):
+        means = np.mean(self.SAMPLES,axis=0)
+        stds = np.std(self.SAMPLES,axis=0)
+        return means, stds
     
-def RunForward(fun,model):
-    try:
-        tmp = fun(model)
-    except:
-        tmp = None
-    return tmp
