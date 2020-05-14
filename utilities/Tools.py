@@ -68,7 +68,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         Noise = np.diag(Cc)
     elif TypeMod is "DC":
         if not(isinstance(NoiseLevel,list)):
-            print('Noise must be in the form of a list! Converted to default value of 10 nV!')
+            print('Noise must be in the form of a list! Converted to default value!')
             NoiseLevel = [0.05, 100]
         # Propagating Noise:
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) 

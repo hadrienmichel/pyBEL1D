@@ -13,10 +13,10 @@ from scipy import stats
 import multiprocessing as mp 
 
 
-# TODO:
+# TODO/DONE:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
 #   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
-#   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96)
+#   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96 - compiled with msys2 for python)
 #   - Add postprocessing (partially done - need for models viewer)
 #   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
 #   - (Done on 13/05/2020) Add support for iterations
@@ -453,6 +453,67 @@ class POSTBEL:
             if TrueModel is not None:
                 ax.plot([TrueModel[i],TrueModel[i]],np.asarray(ax.get_ylim()),'r')
             pyplot.show(block=False)
+        pyplot.show()
+    
+    def ShowPostCorr(self,TrueModel=None,OtherMethod=None):
+        # Adding the graph with correlations: 
+        nbParam = self.SAMPLES.shape[1]
+        if (TrueModel is not None) and (len(TrueModel)!=nbParam):
+            TrueModel = None
+        if (OtherMethod is not None) and (OtherMethod.shape[1]!=nbParam):
+            print('OtherMethod is not a valid argument!')
+            OtherMethod = None
+        fig = pyplot.figure(figsize=[10,10])# Creates the figure space
+        axs = fig.subplots(nbParam, nbParam)
+        for i in range(nbParam):
+            for j in range(nbParam):
+                if i == j: # Diagonal
+                    if i != nbParam-1:
+                        axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                    axs[i,j].hist(self.SAMPLES[:,j]) # Plot the histogram for the given variable
+                    if TrueModel is not None:
+                        axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
+                elif i > j: # Below the diagonal -> Scatter plot
+                    if i != nbParam-1:
+                        axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                    if j != nbParam-1:
+                        if i != nbParam-1:
+                            axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                        else:
+                            axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b')
+                    if TrueModel is not None:
+                        axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                elif OtherMethod is not None:
+                    if i != nbParam-1:
+                        axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                    if j != nbParam-1:
+                        if i != 0:
+                            axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                        else:
+                            axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                    axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y')
+                    if TrueModel is not None:
+                        axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                else:
+                    axs[i,j].set_visible(False)
+                if j == 0: # First column of the graph
+                    if not(i==j):
+                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][i]))
+                if i == nbParam-1: # Last line of the graph
+                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
+                if j == nbParam-1:
+                    if not(i==j):
+                        axs[i,j].yaxis.set_label_position("right")
+                        axs[i,j].yaxis.tick_right()
+                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][i]))
+                if i == 0:
+                    axs[i,j].xaxis.set_label_position("top")
+                    axs[i,j].xaxis.tick_top()
+                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
+        fig.suptitle("Posterior model space visualtization")
+        for ax in axs.flat:
+            ax.label_outer()
         pyplot.show()
 
     def GetStats(self):
