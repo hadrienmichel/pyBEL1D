@@ -1,7 +1,6 @@
 # Importing custom libraries
 from utilities import Tools
 from utilities.KernelDensity import KDE
-from utilities import ForwardModelling
 #Importing common libraries
 import numpy as np 
 import math as mt 
@@ -17,21 +16,23 @@ import multiprocessing as mp
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
 #   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
 #   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96 - compiled with msys2 for python)
-#   - Add postprocessing (partially done - need for models viewer)
+#   - Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
 #   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
 #   - (Done on 13/05/2020) Add support for iterations
 #   - Add iteration convergence critereon!
 #   - Lower the memory needs (how? not urgent)
 #   - Comment the codes!
+#   - Check KDE behaviour whit outliers (too long computations and useless?)
 
 class MODELSET:
 
-    def __init__(self,prior=None,cond=None,method=None,forwardFun=None,paramNames=None):
+    def __init__(self,prior=None,cond=None,method=None,forwardFun=None,paramNames=None,nbLayer=None):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
             self.prior = []
             self.method = []
             self.forwardFun = []
             self.paramNames = []
+            self.nbLayer = nbLayer # If None -> Model with parameters and no layers (not geophy?)
             self.cond = cond
         else:
             self.prior = prior
@@ -39,6 +40,7 @@ class MODELSET:
             self.forwardFun = forwardFun
             self.cond = cond
             self.paramNames = paramNames
+            self.nbLayer = nbLayer
     
     @classmethod
     def SNMR(cls,prior=None,Kernel=None,Timing=None):
@@ -100,14 +102,14 @@ class MODELSET:
                     NamesShort[ident] = NShort[j] + str(i+1) + "}"
                     ident += 1
         method = "sNMR"
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["e_i", "W_i", "T_{2,i}"]}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"]}
         KFile = sNMR.MRS()
         KFile.loadKernel(Kernel)
         ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
         forwardFun = lambda model: ModellingMethod.response(model)
         forward = {"Fun":forwardFun,"Axis":Timing}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
-        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames)
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
 
     @classmethod
     def DC(cls,prior=None,Frequency=None):
@@ -166,7 +168,7 @@ class MODELSET:
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["e_i", "Vs_i", "Vp_i", "\\rho_i"]}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/sec]", "Vp [km/s]", "\\rho [T/m^3]"]}
         forwardFun = lambda model: surf96(thickness=np.squeeze([model[0:nLayer-1], [0]]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         forward = {"Fun":forwardFun,"Axis":Periods}
         def PoissonRatio(model):
@@ -177,7 +179,7 @@ class MODELSET:
         RatioMin = [0.1]*nLayer
         RatioMax = [0.5]*nLayer
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater_equal(PoissonRatio(model),RatioMin),np.less_equal(PoissonRatio(model),RatioMax))).all()
-        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames)
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
 
 class PREBEL:
     """Object that is used to store the PREBEL elements:
@@ -351,6 +353,7 @@ class POSTBEL:
     """
     def __init__(self,PREBEL:PREBEL):
         self.nbModels = PREBEL.nbModels
+        self.nbSamples = 1000 # Default number of sampled models
         self.FORWARD_PRIOR = PREBEL.FORWARD
         self.KDE = PREBEL.KDE
         self.PCA = PREBEL.PCA
@@ -361,6 +364,7 @@ class POSTBEL:
         self.SAMPLESDATA = []
 
     def run(self,Dataset,nbSamples=1000,Graphs=False,NoiseModel=None):
+        self.nbSamples = nbSamples
         # Transform dataset to CCA space:
         Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
         d_obs_h = self.PCA['Data'].transform(Dataset)
@@ -424,9 +428,9 @@ class POSTBEL:
                 break
             except:
                 indexCurr += 1
-        self.SAMPLESDATA = np.zeros((self.nbModels,len(tmp)))
+        self.SAMPLESDATA = np.zeros((self.nbSamples,len(tmp)))
         notComputed = []
-        for i in range(self.nbModels):
+        for i in range(self.nbSamples):
             # print(i)
             try:
                 self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
@@ -436,9 +440,9 @@ class POSTBEL:
         # Getting the uncomputed models and removing them:
         self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
         self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
-        newModelsNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
-        print('{} models remaining after forward modelling!'.format(newModelsNb))
-        self.nbModels = newModelsNb
+        newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        print('{} models remaining after forward modelling!'.format(newSamplesNb))
+        self.nbSamples = newSamplesNb
         return self.SAMPLESDATA
 
     def ShowPost(self,TrueModel=None):
@@ -514,6 +518,55 @@ class POSTBEL:
         fig.suptitle("Posterior model space visualtization")
         for ax in axs.flat:
             ax.label_outer()
+        pyplot.show()
+    
+    def ShowPostModels(self,TrueModel=None,RMSE=False):
+        nbParam = self.SAMPLES.shape[1]
+        nbLayer = self.MODPARAM.nbLayer
+        if (TrueModel is not None) and (len(TrueModel)!=nbParam):
+            TrueModel = None
+        if RMSE and len(self.SAMPLESDATA)==0:
+            print('Computing the forward model for the posterior!')
+            self.DataPost()
+        if RMSE:
+            TrueData = self.DATA['True']
+            RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+            quantiles = np.divide([stats.percentileofscore(RMS,a,'strict') for a in RMS],100)
+            sortIndex = np.argsort(RMS)
+            sortIndex = np.flip(sortIndex)
+        else:
+            sortIndex = np.arange(self.nbSamples)
+        if nbLayer is not None:# If the model can be displayed as layers
+            nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
+            fig = pyplot.figure(figsize=[10,4*nbParamUnique])
+            Param = list()
+            Param.append(np.cumsum(self.SAMPLES[:,0:nbLayer-1],axis=1))
+            for i in range(nbParamUnique):
+                Param.append(self.SAMPLES[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+                
+            maxDepth = np.max(Param[0][:,-1])*1.25
+            if RMSE:
+                colormap = matplotlib.cm.get_cmap('jet')
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
+                for j in range(nbParamUnique):
+                    for i in sortIndex:
+                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                    axes[j].invert_yaxis()
+                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]))
+            else:
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
+                for j in range(nbParamUnique):
+                    for i in sortIndex:
+                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    axes[j].invert_yaxis()
+                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]))
+        for ax in axes.flat:
+            ax.label_outer()
+        fig.suptitle("Posterior model visualtization")
         pyplot.show()
 
     def GetStats(self):
