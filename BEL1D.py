@@ -11,12 +11,17 @@ from sklearn import decomposition, cross_decomposition
 from scipy import stats
 import multiprocessing as mp 
 
+def round_to_5(x,n=1): 
+    # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
+    tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
+    return tmp
+
 
 # TODO/DONE:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
 #   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
 #   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96 - compiled with msys2 for python)
-#   - Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
+#   - (Done on 18/05/2020) Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
 #   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
 #   - (Done on 13/05/2020) Add support for iterations
 #   - Add iteration convergence critereon!
@@ -102,7 +107,7 @@ class MODELSET:
                     NamesShort[ident] = NShort[j] + str(i+1) + "}"
                     ident += 1
         method = "sNMR"
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"]}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]"}
         KFile = sNMR.MRS()
         KFile.loadKernel(Kernel)
         ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
@@ -168,7 +173,7 @@ class MODELSET:
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/sec]", "Vp [km/s]", "\\rho [T/m^3]"]}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/sec]", "Vp [km/s]", "\\rho [T/m^3]"],"DataUnits":"[km/s]"}
         forwardFun = lambda model: surf96(thickness=np.squeeze([model[0:nLayer-1], [0]]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         forward = {"Fun":forwardFun,"Axis":Periods}
         def PoissonRatio(model):
@@ -521,6 +526,7 @@ class POSTBEL:
         pyplot.show()
     
     def ShowPostModels(self,TrueModel=None,RMSE=False):
+        from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
@@ -566,6 +572,24 @@ class POSTBEL:
                     axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]))
         for ax in axes.flat:
             ax.label_outer()
+        
+        if RMSE:
+            fig.subplots_adjust(bottom=0.25)
+            ax_colorbar = fig.add_axes([0.15, 0.10, 0.70, 0.05])
+            nb_inter = 1000
+            color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
+            cmap_scale = colors.ListedColormap(color_for_scale)
+            scale = [stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+            norm = colors.BoundaryNorm(scale,len(color_for_scale))
+            data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
+            ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
+            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]))
+            ax_colorbar.yaxis.set_visible(False)
+            nbTicks = 5
+            ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
+            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
+
+
         fig.suptitle("Posterior model visualtization")
         pyplot.show()
 

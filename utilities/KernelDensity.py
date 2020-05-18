@@ -6,6 +6,7 @@ from scipy import stats
 from scipy.interpolate import interp1d
 from matplotlib import path
 from matplotlib import pyplot
+from itertools import groupby
 
 class KDE:
     def __init__(self,X,Y):
@@ -19,11 +20,15 @@ class KDE:
         for i in range(self.nb_dim):
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
-    def KernelDensity(self,dim=None):
+    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None):
         if dim is None:
             dim = range(self.nb_dim) # We run all the dimensions
         elif np.max(dim) > self.nb_dim:
             raise Exception('Dimension outside of possibilities: max = {} (input = {})'.format(self.nb_dim,np.max(dim)))
+        if XTrue is not None and len(XTrue) != self.nb_dim:
+            raise Exception('XTrue is not compatible with the dimensions given.')
+        if XTrue is None and NoiseError is not None:
+            NoiseError is None
         for i in dim:
             # Initializing
             dataset = self.datasets[i]
@@ -51,31 +56,63 @@ class KDE:
             # pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
             # Circle of points search: 
             # circle = lambda X,Y,b: np.column_stack(((4*b*np.cos(th) + X), (4*b*np.sin(th) + Y)))
-            self.Xaxis[i] = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
-            self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
-            KDE = np.zeros((len(self.Xaxis[i]),len(self.Yaxis[i])))
-            x_idx = 0
-            for x in self.Xaxis[i]:
-                y_idx = 0
-                for y in self.Yaxis[i]:
-                    # p = path.Path(circle(x,y,band))
-                    probaLarge = 4
-                    impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
-                    if np.sum(impacts)>0:
-                        idxImpacts = np.where(impacts)
-                        idxImpacts = idxImpacts[0]
-                        # Test for vectorization:
-                        z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
-                        pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
-                        KDE[x_idx,y_idx] += np.sum(pdf)
-                        # End- test for vectorization
-                        # for j in np.arange(len(idxImpacts)):
-                        #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
-                        y_idx += 1
-                    else:
-                        y_idx += 1                    
-                x_idx += 1
-            self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
+            if XTrue is None:
+                self.Xaxis[i] = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
+                self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+                KDE = np.zeros((len(self.Xaxis[i]),len(self.Yaxis[i])))
+                x_idx = 0
+                for x in self.Xaxis[i]:
+                    y_idx = 0
+                    for y in self.Yaxis[i]:
+                        # p = path.Path(circle(x,y,band))
+                        probaLarge = 4
+                        impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+                        if np.sum(impacts)>0:
+                            idxImpacts = np.where(impacts)
+                            idxImpacts = idxImpacts[0]
+                            # Test for vectorization:
+                            z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
+                            pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
+                            KDE[x_idx,y_idx] += np.sum(pdf)
+                            # End- test for vectorization
+                            # for j in np.arange(len(idxImpacts)):
+                            #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                            y_idx += 1
+                        else:
+                            y_idx += 1                    
+                    x_idx += 1
+                self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
+            else:
+                self.Xaxis[i] = np.asarray(XTrue[i])
+                self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+                KDE = np.zeros((len(self.Xaxis[i]),len(self.Yaxis[i])))
+                bandY = band
+                if (NoiseError is not None) and NoiseError[i]> band:
+                    bandX = NoiseError[i]
+                else:
+                    bandX = band
+                x_idx = 0
+                for x in self.Xaxis[i]:
+                    y_idx = 0
+                    for y in self.Yaxis[i]:
+                        # p = path.Path(circle(x,y,band))
+                        probaLarge = 4
+                        impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+                        if np.sum(impacts)>0:
+                            idxImpacts = np.where(impacts)
+                            idxImpacts = idxImpacts[0]
+                            # Test for vectorization:
+                            z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), bandX**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), bandY**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), bandX*bandYS)
+                            pdf = np.multiply(1/(2*np.pi*bandX*bandY), np.exp(-z))
+                            KDE[x_idx,y_idx] += np.sum(pdf)
+                            # End- test for vectorization
+                            # for j in np.arange(len(idxImpacts)):
+                            #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                            y_idx += 1
+                        else:
+                            y_idx += 1                    
+                    x_idx += 1
+                self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
     
     def ShowKDE(self,dim=None,Xvals=None):
         if dim is None:
