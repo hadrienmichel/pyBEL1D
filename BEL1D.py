@@ -290,37 +290,40 @@ class PREBEL:
         self.KDE.KernelDensity()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,POSTBEL):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None):
+        if (Dataset is None) and (NoiseModel is not None):
+            NoiseModel = None 
         # 1) Initialize the Prebel class object
         Modelset = POSTBEL.MODPARAM # A MODELSET class object
         PrebelNew = cls(Modelset)
-        # 2) Inject the samples from postbel
-        PrebelNew.MODELS = POSTBEL.SAMPLES
-        PrebelNew.nbModels = np.size(POSTBEL.SAMPLES,axis=0) # Get the number of sampled models
+        # 2) Inject the samples from postbel:
+        ModelsKeep = POSTBEL.SAMPLES
         # 2) Running the forward model
         # For DC, sometimes, the code will return an error --> need to remove the model from the prior
         indexCurr = 0
         while True:
             try:
-                tmp = PrebelNew.MODPARAM.forwardFun["Fun"](PrebelNew.MODELS[indexCurr,:])
+                tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
                 break
             except:
                 indexCurr += 1
-        PrebelNew.FORWARD = np.zeros((PrebelNew.nbModels,len(tmp)))
+        ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
         notComputed = []
-        for i in range(PrebelNew.nbModels):
+        for i in range(np.size(ModelsKeep,axis=0)):
             # print(i)
             try:
-                PrebelNew.FORWARD[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](PrebelNew.MODELS[i,:])
+                ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
             except:
-                PrebelNew.FORWARD[i,:] = [None]*len(tmp)
+                ForwardKeep[i,:] = [None]*len(tmp)
                 notComputed.append(i)
         # Getting the uncomputed models and removing them:
-        PrebelNew.MODELS = np.delete(PrebelNew.MODELS,notComputed,0)
-        PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,notComputed,0)
-        newModelsNb = np.size(PrebelNew.MODELS,axis=0) # Get the number of models remaining
+        ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+        ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+        newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newModelsNb))
-        PrebelNew.nbModels = newModelsNb
+        PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
+        PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
+        PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         # 3) PCA on data (and optionally model):
         reduceModels = False
         if reduceModels:
@@ -342,9 +345,21 @@ class PREBEL:
         cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
         d_c,m_c = cca_transform.fit_transform(d_h,m_h)
         PrebelNew.CCA = cca_transform
+        # 5-pre) If dataset already exists:
+        if Dataset is not None:
+            Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
+            d_obs_h = PrebelNew.PCA['Data'].transform(Dataset)
+            d_obs_c = PrebelNew.CCA.transform(d_obs_h)
+            if NoiseModel is not None:
+                Noise = Tools.PropagateNoise(PrebelNew,NoiseModel)
+            else:
+                Noise = None
         # 5) KDE:
         PrebelNew.KDE = KDE(d_c,m_c)
-        PrebelNew.KDE.KernelDensity()
+        if Dataset is None:
+            PrebelNew.KDE.KernelDensity()
+        else:
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise)
         return PrebelNew
         
 class POSTBEL:
@@ -381,7 +396,8 @@ class POSTBEL:
         else:
             Noise = None
         # Obtain corresponding distribution (KDE)
-        self.KDE.GetDist(Xvals=d_obs_c,Noise=Noise)
+        if (self.KDE.Dist[0] is None):
+            self.KDE.GetDist(Xvals=d_obs_c,Noise=Noise)
         if Graphs:
             self.KDE.ShowKDE(Xvals=d_obs_c)
         # Sample models:
@@ -544,11 +560,16 @@ class POSTBEL:
             sortIndex = np.arange(self.nbSamples)
         if nbLayer is not None:# If the model can be displayed as layers
             nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
-            fig = pyplot.figure(figsize=[10,4*nbParamUnique])
+            fig = pyplot.figure(figsize=[4*nbParamUnique,10])
             Param = list()
             Param.append(np.cumsum(self.SAMPLES[:,0:nbLayer-1],axis=1))
             for i in range(nbParamUnique):
                 Param.append(self.SAMPLES[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+            if TrueModel is not None:
+                TrueMod = list()
+                TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
+                for i in range(nbParamUnique):
+                    TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
                 
             maxDepth = np.max(Param[0][:,-1])*1.25
             if RMSE:
@@ -557,6 +578,8 @@ class POSTBEL:
                 for j in range(nbParamUnique):
                     for i in sortIndex:
                         axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                    if TrueModel is not None:
+                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
                     axes[j].invert_yaxis()
                     axes[j].set_ylim(bottom=maxDepth,top=0.0)
                     axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))
@@ -566,6 +589,8 @@ class POSTBEL:
                 for j in range(nbParamUnique):
                     for i in sortIndex:
                         axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    if TrueModel is not None:
+                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
                     axes[j].invert_yaxis()
                     axes[j].set_ylim(bottom=maxDepth,top=0.0)
                     axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))

@@ -87,3 +87,37 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
     else:
         raise RuntimeWarning('No noise propagation defined for the gievn method!')
     return Noise
+
+def ConvergeTest(SamplesA, SamplesB,nbClassDim=10):
+    import numpy as np 
+    from scipy import stats
+    # 0) Find the ranges of each axis:
+    mins = np.min(np.append(SamplesA, SamplesB, axis=0),axis=0)
+    maxs = np.max(np.append(SamplesA, SamplesB, axis=0),axis=0)
+    nbDim = np.size(SamplesA,axis=1)
+    if np.size(SamplesB,axis=1) != nbDim:
+        raise Exception('SamplesA and SamplesB must have the same number of features!')
+    # TODO: Manage memory! The use of memory for the operations is HUGE!
+    #
+    # Instead of comparing the whole distributions (impossible for memory management!), 
+    # we will compare the distributions in 2D spaces and analyse all the combinations 
+    # We thus have to analyse 'np.cumsum(np.arange(1,nbDim))' combinations with memory
+    # needs closer to acheivable results (with 100 values per axis, we get per combination 
+    # (100x100)xnp.unit64).
+    # The complete analysis would requier (100**nbDim)xnp.uint64, impossible for large
+    # dimension models.
+    #
+    # 1) Convert the samples array to Discrete probabilities in n-dimensions
+    for i in range(nbDim):
+        for j in range(nbDim):
+            if i==j:
+                # Check if the 1D distributions are similar
+                distance = stats.wasserstein_distance(SamplesA[:,i],SamplesB[:,j]) # Return wasserstein distance between distributions --> "Small" = converged
+            elif i < j:
+                # Check if the 2D combinations are similar: DOI 10.1007/s10851-014-0506-3
+                # Build classes of the first dimension to infer the second dimension histogram
+
+                test = 0
+    # 2) Compute the KL divernence:
+    diverge = 0
+    return diverge
