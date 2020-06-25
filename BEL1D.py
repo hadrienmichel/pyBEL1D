@@ -146,6 +146,7 @@ class MODELSET:
         import numpy.matlib
         if prior is None:
             prior = np.array([[0.0025, 0.0075, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
+        if Frequency is None:
             Frequency = np.linspace(1,50,50)
         nLayer, nParam = prior.shape
         nParam /= 2
@@ -174,7 +175,7 @@ class MODELSET:
         method = "DC"
         Periods = np.divide(1,Frequency)
         paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/sec]", "Vp [km/s]", "\\rho [T/m^3]"],"DataUnits":"[km/s]"}
-        forwardFun = lambda model: surf96(thickness=np.squeeze([model[0:nLayer-1], [0]]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         forward = {"Fun":forwardFun,"Axis":Periods}
         def PoissonRatio(model):
             vp=model[2*nLayer-1:3*nLayer-1]
@@ -182,8 +183,8 @@ class MODELSET:
             ratio = 1/2 * (np.power(vp,2) - 2*np.power(vs,2))/(np.power(vp,2)-np.power(vs,2))
             return ratio
         RatioMin = [0.1]*nLayer
-        RatioMax = [0.5]*nLayer
-        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater_equal(PoissonRatio(model),RatioMin),np.less_equal(PoissonRatio(model),RatioMax))).all()
+        RatioMax = [0.45]*nLayer
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
 
 class PREBEL:
@@ -249,6 +250,8 @@ class PREBEL:
                 break
             except:
                 indexCurr += 1
+                if indexCurr > self.nbModels:
+                    raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
         notComputed = []
         for i in range(self.nbModels):
@@ -290,9 +293,9 @@ class PREBEL:
         self.KDE.KernelDensity()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None):
-        if (Dataset is None) and (NoiseModel is not None):
-            NoiseModel = None 
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000):
+        # if (Dataset is None) and (NoiseModel is not None):
+        #     NoiseModel = None 
         # 1) Initialize the Prebel class object
         Modelset = POSTBEL.MODPARAM # A MODELSET class object
         PrebelNew = cls(Modelset)
@@ -307,6 +310,8 @@ class PREBEL:
                 break
             except:
                 indexCurr += 1
+                if indexCurr > PrebelNew.nbModels:
+                    raise Exception('The forward modelling failed!')
         ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
         notComputed = []
         for i in range(np.size(ModelsKeep,axis=0)):
@@ -324,6 +329,13 @@ class PREBEL:
         PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
         PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        if Simplified and (PrebelNew.nbModels>nbMax):
+            import random
+            idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
+            PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
+            PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
+            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+            print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
         if reduceModels:
@@ -374,7 +386,7 @@ class POSTBEL:
     def __init__(self,PREBEL:PREBEL):
         self.nbModels = PREBEL.nbModels
         self.nbSamples = 1000 # Default number of sampled models
-        self.FORWARD_PRIOR = PREBEL.FORWARD
+        self.FORWARD = PREBEL.FORWARD # Forward from the prior
         self.KDE = PREBEL.KDE
         self.PCA = PREBEL.PCA
         self.CCA = PREBEL.CCA
@@ -495,7 +507,9 @@ class POSTBEL:
                 if i == j: # Diagonal
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
-                    axs[i,j].hist(self.SAMPLES[:,j]) # Plot the histogram for the given variable
+                    if OtherMethod is not None:
+                        axs[i,j].hist(OtherMethod[:,j],color='y')
+                    axs[i,j].hist(self.SAMPLES[:,j],color='b') # Plot the histogram for the given variable
                     if TrueModel is not None:
                         axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
                 elif i > j: # Below the diagonal -> Scatter plot
