@@ -98,7 +98,7 @@ def testIter(nbIter=5):
 IterTest = True
 
 if IterTest:
-    nbIter = 10
+    nbIter = 5
     timings, means, stds, names = testIter(nbIter=nbIter)
     pyplot.plot(np.arange(len(timings)),timings)
     pyplot.ylabel('Computation Time [sec]')
