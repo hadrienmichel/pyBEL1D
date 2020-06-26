@@ -9,7 +9,7 @@ conda activate bel1d
 ```
 Install the different libraries in the new environment:
 ```
-conda install python=3.7 # For the python version
+conda install python=3.7.7 # For the python version
 conda install numpy
 conda install scipy
 conda install scikit-learn
@@ -25,6 +25,13 @@ pip install git+https://github.com/miili/pysurf96
 
 Then run the code in this environment (bel1d for the example above).
 
+# Utilization
+All the functions must be in the pyBEL1D folder to run (or you need to import the library, not yet implemented) and respect the folder architecture that is in the repository.
+
+- The file exampleSNMR.py provides a commented example on how to run the codes for SNMR data.
+- The file exampleDC.py provides an example on how to use BEL1D with a dispersion curve originating from real data.
+
 # Acknowledgement
 The forwrad model for sNMR is provided by [pygimli](https://www.pygimli.org).
+
 The forward model for Surface Waves dispersion curves is a Python inteface of the Computer programs in seismology (R. Hermans) provided by miili on [github](https://github.com/miili/pysurf96).
