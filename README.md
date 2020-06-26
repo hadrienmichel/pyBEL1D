@@ -2,6 +2,8 @@
 pyBEL1D is a python implementation of the BEL1D matlab codes ([BEL1D](https://github.com/hadrienmichel/BEL1D)). It is a work under devellopment and not in any form a finished product. 
 
 # Installation:
+The following instructions are working on Windows 10. 
+
 Build a new conda environment with python 3.7.
 ```
 conda create -n bel1d
@@ -20,6 +22,18 @@ conda install pygimli
 # For DC application:
 conda install libpython
 conda install -c msys2 m2w64-toolchain
+pip install git+https://github.com/miili/pysurf96
+```
+
+For MACOS installation, replace the last 3 lines with (not tested):
+```
+conda install -c anaconda gfortran_osx-64
+pip install git+https://github.com/miili/pysurf96
+```
+
+On linux machines, run (not tested):
+```
+conda install -c anaconda gfortran_linux-64
 pip install git+https://github.com/miili/pysurf96
 ```
 
