@@ -76,7 +76,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
-        dataNoisy = data + NoiseLevel[0]*(np.random.randn(nbTest,1)*data + POSTBEL.MODPARAM.forwardFun["Axis"]/NoiseLevel[1])
+        dataNoisy = data + np.random.randn(nbTest,1)*np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):

@@ -130,7 +130,7 @@ class KDE:
             # Printing the KDE on a graph
             if (self.KDE[i] is not None):
                 X_KDE, Y_KDE = np.meshgrid(self.Xaxis[i],self.Yaxis[i])
-                fig, ax = pyplot.subplots()
+                _, ax = pyplot.subplots()
                 ax.pcolormesh(X_KDE,Y_KDE,np.transpose(self.KDE[i]))
                 ax.set_title('Dimension {}'.format(str(i+1)))
                 ax.set_xlabel('$D^c_{}$'.format(str(i+1)))
