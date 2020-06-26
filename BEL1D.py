@@ -158,7 +158,7 @@ class MODELSET:
         NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
         Mins = np.zeros(((nLayer*nParam)-1,))
         Maxs = np.zeros(((nLayer*nParam)-1,))
-        Units = [" [m]", " [km/s]", " [km/s]", " [T/m^3]"]
+        Units = [" [km]", " [km/s]", " [km/s]", " [T/m^3]"]
         NFull = ["Thickness","s-Wave velocity","p-Wave velocity", "Density"]
         NShort = ["e_{", "Vs_{", "Vp_{", "\\rho_{"]
         ident = 0
@@ -483,7 +483,7 @@ class POSTBEL:
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
             TrueModel = None
         for i in range(nbParam):
-            fig, ax = pyplot.subplots()
+            _, ax = pyplot.subplots()
             ax.hist(self.SAMPLES[:,i])
             ax.set_title("Posterior histogram")
             ax.set_xlabel(self.MODPARAM.paramNames["NamesFU"][i])
