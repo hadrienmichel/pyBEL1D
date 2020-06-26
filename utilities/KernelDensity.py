@@ -46,7 +46,7 @@ class KDE:
                 circleOK = np.column_stack(((3*j*np.cos(th) + meanD), (3*j*np.sin(th) + meanH)))# [j*3*mt.cos(th[k]) + meanD, j*3*mt.sin(th[k]) + meanH]
                 p = path.Path(circleOK)
                 inside = p.contains_points(dataset)
-                if np.sum(inside) > L*0.05:# 5% seems to work fine
+                if np.sum(inside) > L*0.5:# 5% seems to work fine
                     break
             band = j
             # Defing some lambda functions
