@@ -93,7 +93,7 @@ class MODELSET:
         Mins = np.zeros(((nLayer*nParam)-1,))
         Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = [" [m]", " [/]", " [s]"]
-        NFull = ["Thickness","Water Content","Relaxation Time"]
+        NFull = ["Thickness ","Water Content ","Relaxation Time "]
         NShort = ["e_{", "W_{", "T_{2,"]
         ident = 0
         for j in range(nParam):
@@ -159,7 +159,7 @@ class MODELSET:
         Mins = np.zeros(((nLayer*nParam)-1,))
         Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = [" [km]", " [km/s]", " [km/s]", " [T/m^3]"]
-        NFull = ["Thickness","s-Wave velocity","p-Wave velocity", "Density"]
+        NFull = ["Thickness ","s-Wave velocity ","p-Wave velocity ", "Density "]
         NShort = ["e_{", "Vs_{", "Vp_{", "\\rho_{"]
         ident = 0
         for j in range(nParam):
@@ -174,7 +174,7 @@ class MODELSET:
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/sec]", "Vp [km/s]", "\\rho [T/m^3]"],"DataUnits":"[km/s]"}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/s]", "Vp [km/s]", "\\rho [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase velocity [km/s]","DataAxis":"Periods [s]"}
         forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         forward = {"Fun":forwardFun,"Axis":Periods}
         def PoissonRatio(model):
@@ -182,7 +182,7 @@ class MODELSET:
             vs=model[nLayer-1:2*nLayer-1]
             ratio = 1/2 * (np.power(vp,2) - 2*np.power(vs,2))/(np.power(vp,2)-np.power(vs,2))
             return ratio
-        RatioMin = [0.1]*nLayer
+        RatioMin = [0.2]*nLayer
         RatioMax = [0.45]*nLayer
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
@@ -373,6 +373,53 @@ class PREBEL:
         else:
             PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise)
         return PrebelNew
+    
+    def ShowPreModels(self,TrueModel=None):
+        from matplotlib import colors
+        nbParam = self.MODELS.shape[1]
+        nbLayer = self.MODPARAM.nbLayer
+        if (TrueModel is not None) and (len(TrueModel)!=nbParam):
+            TrueModel = None
+        sortIndex = np.arange(self.nbModels)
+        if nbLayer is not None:# If the model can be displayed as layers
+            nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
+            fig = pyplot.figure(figsize=[4*nbParamUnique,10])
+            Param = list()
+            Param.append(np.cumsum(self.MODELS[:,0:nbLayer-1],axis=1))
+            for i in range(nbParamUnique):
+                Param.append(self.MODELS[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+            if TrueModel is not None:
+                TrueMod = list()
+                TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
+                for i in range(nbParamUnique):
+                    TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+                
+            maxDepth = np.max(Param[0][:,-1])*1.25
+            axes = fig.subplots(1,nbParamUnique) # One graph per parameter
+            for j in range(nbParamUnique):
+                for i in sortIndex:
+                    axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                if TrueModel is not None:
+                    axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                axes[j].invert_yaxis()
+                axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
+                axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
+        for ax in axes.flat:
+            ax.label_outer()
+
+        fig.suptitle("Prior model visualtization",FontSize=16)
+        pyplot.show()
+
+    def ShowPriorDataset(self):
+        sortIndex = np.arange(self.nbModels)
+        fig = pyplot.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        for j in sortIndex:
+            ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:]),color='gray')
+            ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
+            ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+        pyplot.show()
         
 class POSTBEL:
     """Object that is used to store the POSTBEL elements:
@@ -454,6 +501,9 @@ class POSTBEL:
             self.SAMPLES = Samples
 
     def DataPost(self):
+        if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
+            print('Forward modelling already conducted!')
+            return self.SAMPLESDATA
         indexCurr = 0
         while True:
             try:
@@ -512,6 +562,9 @@ class POSTBEL:
                     axs[i,j].hist(self.SAMPLES[:,j],color='b') # Plot the histogram for the given variable
                     if TrueModel is not None:
                         axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
+                    if nbParam > 8:
+                        axs[i,j].set_xticks([])
+                        axs[i,j].set_yticks([])
                 elif i > j: # Below the diagonal -> Scatter plot
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
@@ -523,6 +576,9 @@ class POSTBEL:
                     axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b')
                     if TrueModel is not None:
                         axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                    if nbParam > 8:
+                        axs[i,j].set_xticks([])
+                        axs[i,j].set_yticks([])
                 elif OtherMethod is not None:
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
@@ -534,10 +590,13 @@ class POSTBEL:
                     axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y')
                     if TrueModel is not None:
                         axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                    if nbParam > 8:
+                        axs[i,j].set_xticks([])
+                        axs[i,j].set_yticks([])
                 else:
                     axs[i,j].set_visible(False)
                 if j == 0: # First column of the graph
-                    if not(i==j):
+                    if ((i==0)and(j==0)) or not(i==j):
                         axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][i]))
                 if i == nbParam-1: # Last line of the graph
                     axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
@@ -555,7 +614,7 @@ class POSTBEL:
             ax.label_outer()
         pyplot.show()
     
-    def ShowPostModels(self,TrueModel=None,RMSE=False):
+    def ShowPostModels(self,TrueModel=None,RMSE=False, Best=None):
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -572,6 +631,8 @@ class POSTBEL:
             sortIndex = np.flip(sortIndex)
         else:
             sortIndex = np.arange(self.nbSamples)
+        if Best is not None:
+            sortIndex = sortIndex[-Best:]
         if nbLayer is not None:# If the model can be displayed as layers
             nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
             fig = pyplot.figure(figsize=[4*nbParamUnique,10])
@@ -596,8 +657,8 @@ class POSTBEL:
                         axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
                     axes[j].invert_yaxis()
                     axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))
-                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]))
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
             else:
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 for j in range(nbParamUnique):
@@ -607,8 +668,8 @@ class POSTBEL:
                         axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
                     axes[j].invert_yaxis()
                     axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]))
-                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]))
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
         for ax in axes.flat:
             ax.label_outer()
         
@@ -622,14 +683,63 @@ class POSTBEL:
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
             data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
-            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]))
+            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),FontSize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
             ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
 
 
-        fig.suptitle("Posterior model visualtization")
+        fig.suptitle("Posterior model visualtization",FontSize=16)
+        pyplot.show()
+    
+    def ShowDataset(self,RMSE=False,Prior=False,Best=None):
+        from matplotlib import colors
+        # Model the dataset (if not already done)
+        if len(self.SAMPLESDATA)==0:
+            print('Computing the forward model for the posterior!')
+            self.DataPost()
+        if RMSE:
+            TrueData = self.DATA['True']
+            RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+            quantiles = np.divide([stats.percentileofscore(RMS,a,'strict') for a in RMS],100)
+            sortIndex = np.argsort(RMS)
+            sortIndex = np.flip(sortIndex)
+        else:
+            sortIndex = np.arange(self.nbSamples)
+        if Best is not None:
+            sortIndex = sortIndex[-Best:]# Select then best models
+        fig = pyplot.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        if Prior:
+            for j in range(self.nbModels):
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:]),color='gray')
+        if RMSE:
+            colormap = matplotlib.cm.get_cmap('jet')
+            for j in sortIndex:
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:]),color=colormap(quantiles[j]))
+                ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
+                ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+        else:
+            for j in sortIndex:
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:]),color='gray')
+                ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
+                ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+        if RMSE:
+            fig.subplots_adjust(bottom=0.25)
+            ax_colorbar = fig.add_axes([0.10, 0.1, 0.80, 0.05])
+            nb_inter = 1000
+            color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
+            cmap_scale = colors.ListedColormap(color_for_scale)
+            scale = [stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+            norm = colors.BoundaryNorm(scale,len(color_for_scale))
+            data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
+            ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
+            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),FontSize=12)
+            ax_colorbar.yaxis.set_visible(False)
+            nbTicks = 5
+            ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
+            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
         pyplot.show()
 
     def GetStats(self):

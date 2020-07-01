@@ -1,0 +1,9 @@
+# Those files are untracted
+utilities/__pycache__/
+*.perf
+*.npz
+test.py 
+main.py 
+*.pdf
+*.vscode
+__pycache__/
