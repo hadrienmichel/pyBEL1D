@@ -31,7 +31,7 @@ conda install -c anaconda gfortran_osx-64
 pip install git+https://github.com/miili/pysurf96
 ```
 
-On linux machines, run (not tested):
+On Linux machines, run (not tested):
 ```
 conda install -c anaconda gfortran_linux-64
 pip install git+https://github.com/miili/pysurf96
