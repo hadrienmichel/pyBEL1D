@@ -1,10 +1,10 @@
 # This file is an example on how to use the BEL1D codes using a simple 2-layer DC experiment (with noise)
-import BEL1D
+from pyBEL1D import BEL1D
 import cProfile # For debugging and timings measurements
 import time # For simple timing measurements
 import numpy as np # For the initialization of the parameters
 from matplotlib import pyplot # For graphics on post-processing
-from utilities import Tools # For further post-processing
+from pyBEL1D.utilities import Tools # For further post-processing
 from os import listdir
 from os.path import isfile, join
 
@@ -65,7 +65,7 @@ def test(nbModPre=1000):
     Prebel = BEL1D.PREBEL(TestCase,nbModels=nbModPre)
     # We then run the prebel operations:
     print('Running PREBEL . . .')
-    Prebel.run()
+    Prebel.run(Parallelization=False)
     # You can observe the relationship using:
     # Prebel.KDE.ShowKDE()
 
@@ -167,7 +167,7 @@ if IterTest:
     pyplot.show()
 
 if not(IterTest):
-    test(nbModPre=10000)
+    test(nbModPre=1000)
 
 
 # nbModPre = 10000
@@ -198,10 +198,3 @@ if not(IterTest):
 #         print('Dataset {} succeded in {} seconds!'.format(idxUsed+1,end-start))
 #     except:
 #         print('Dataset {} failed!'.format(idxUsed+1))
-
-
-
-
-
-
-

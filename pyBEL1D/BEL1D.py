@@ -1,6 +1,6 @@
 # Importing custom libraries
-from utilities import Tools
-from utilities.KernelDensity import KDE
+from .utilities import Tools
+from .utilities.KernelDensity import KDE
 #Importing common libraries
 import numpy as np 
 import math as mt 
@@ -16,6 +16,19 @@ def round_to_5(x,n=1):
     tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
     return tmp
 
+# Parralelization fucntions:
+def ForwardParallel(function, nbMod, nbVal, Models):
+    ForwardComputed = np.zeros((nbMod,nbVal))
+    notComputed = []
+    for i in range(nbMod):
+        # print(i)
+        try:
+            ForwardComputed[i,:] = function(Models[i,:])
+        except:
+            ForwardComputed[i,:] = [None]*nbVal
+            notComputed.append(i)
+    return ForwardComputed, notComputed
+
 
 # TODO/DONE:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
@@ -24,6 +37,10 @@ def round_to_5(x,n=1):
 #   - (Done on 18/05/2020) Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
 #   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
 #   - (Done on 13/05/2020) Add support for iterations
+#   - Parallelization of the computations:
+#       - KDE (one core/thread per dimension) -> Most probable gain
+#       - Forward modelling (all cores/threads operating) -> Needed for more complex forward models
+#       - Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
 #   - Add iteration convergence critereon!
 #   - Lower the memory needs (how? not urgent)
 #   - Comment the codes!
@@ -31,7 +48,7 @@ def round_to_5(x,n=1):
 
 class MODELSET:
 
-    def __init__(self,prior=None,cond=None,method=None,forwardFun=None,paramNames=None,nbLayer=None):
+    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
             self.prior = []
             self.method = []
@@ -229,10 +246,12 @@ class PREBEL:
         # KDE: a class pobject KDE (custom)
         self.KDE = []
 
-    def run(self):
+    def run(self, Parallelization=False):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
+
+        If the argument Parallelization is True, the forward model and the KDE will be parallelized
         """
 
         # 1) Sampling (if not done already):
@@ -253,18 +272,29 @@ class PREBEL:
                 if indexCurr > self.nbModels:
                     raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
-        notComputed = []
-        for i in range(self.nbModels):
-            # print(i)
-            try:
-                self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
-            except:
-                self.FORWARD[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        self.MODELS = np.delete(self.MODELS,notComputed,0)
-        self.FORWARD = np.delete(self.FORWARD,notComputed,0)
-        newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+        if Parallelization:
+            notComputed = []
+            ForwardParallel = self.FORWARD
+            p = mp.Process(target=ForwardParallel,args=(self.MODPARAM.forwardFun["Fun"],self.nbModels,len(tmp),self.MODELS))
+            p.start()
+            p.join()
+            self.FORWARD = ForwardParallel
+            self.MODELS = np.delete(self.MODELS,notComputed,0)
+            self.FORWARD = np.delete(self.FORWARD,notComputed,0)
+            newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+        else:
+            notComputed = []
+            for i in range(self.nbModels):
+                # print(i)
+                try:
+                    self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
+                except:
+                    self.FORWARD[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            self.MODELS = np.delete(self.MODELS,notComputed,0)
+            self.FORWARD = np.delete(self.FORWARD,notComputed,0)
+            newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
@@ -614,7 +644,7 @@ class POSTBEL:
             ax.label_outer()
         pyplot.show()
     
-    def ShowPostModels(self,TrueModel=None,RMSE=False, Best=None):
+    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None):
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer

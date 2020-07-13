@@ -1,10 +1,10 @@
 # This file is an example on how to use the BEL1D codes using a simple 2-layer SNMR experiment (with noise)
-import BEL1D
+from pyBEL1D import BEL1D
 import cProfile # For debugging and timings measurements
 import time # For simple timing measurements
 import numpy as np # For the initialization of the parameters
 from matplotlib import pyplot # For graphics on post-processing
-from utilities import Tools # For further post-processing
+from pyBEL1D.utilities import Tools # For further post-processing
 
 # Parameters for the tested model
 modelTrue = np.asarray([5.0, 0.05, 0.25, 0.1, 0.2])
@@ -95,7 +95,7 @@ def testIter(nbIter=5):
     paramnames = PostbelTest.MODPARAM.paramNames["NamesS"] # For the legend of the futur graphs
     return timings, means, stds, paramnames
 
-IterTest = True
+IterTest = False
 
 if IterTest:
     nbIter = 5
