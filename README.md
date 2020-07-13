@@ -46,6 +46,6 @@ All the functions must be in the pyBEL1D folder to run (or you need to import th
 - The file exampleDC.py provides an example on how to use BEL1D with a dispersion curve originating from real data.
 
 # Acknowledgement
-The forwrad model for sNMR is provided by [pygimli](https://www.pygimli.org).
+The forward model for sNMR is provided by [pygimli](https://www.pygimli.org).
 
 The forward model for Surface Waves dispersion curves is a Python inteface of the Computer programs in seismology (R. Hermans) provided by miili on [github](https://github.com/miili/pysurf96).
