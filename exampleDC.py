@@ -167,7 +167,7 @@ if IterTest:
     pyplot.show()
 
 if not(IterTest):
-    test(nbModPre=1000)
+    test(nbModPre=10000)
 
 
 # nbModPre = 10000

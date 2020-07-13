@@ -1,5 +1,6 @@
 # Those files are untracted
 utilities/__pycache__/
+*.ipynb
 *.perf
 *.npz
 test.py 
