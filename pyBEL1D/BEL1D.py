@@ -9,7 +9,9 @@ from matplotlib import pyplot
 import sklearn
 from sklearn import decomposition, cross_decomposition
 from scipy import stats
-import multiprocessing as mp 
+from pathos import multiprocessing as mp # No issues with pickeling with this
+from functools import partial
+import time
 
 def round_to_5(x,n=1): 
     # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
@@ -17,17 +19,12 @@ def round_to_5(x,n=1):
     return tmp
 
 # Parralelization fucntions:
-def ForwardParallel(function, nbMod, nbVal, Models):
-    ForwardComputed = np.zeros((nbMod,nbVal))
-    notComputed = []
-    for i in range(nbMod):
-        # print(i)
-        try:
-            ForwardComputed[i,:] = function(Models[i,:])
-        except:
-            ForwardComputed[i,:] = [None]*nbVal
-            notComputed.append(i)
-    return ForwardComputed, notComputed
+def ForwardParallelFun(Model, function, nbVal):
+    try:
+        ForwardComputed = function(Model)
+    except:
+        ForwardComputed = [None]*nbVal
+    return ForwardComputed
 
 
 # TODO/DONE:
@@ -39,8 +36,8 @@ def ForwardParallel(function, nbMod, nbVal, Models):
 #   - (Done on 13/05/2020) Add support for iterations
 #   - Parallelization of the computations:
 #       - KDE (one core/thread per dimension) -> Most probable gain
-#       - Forward modelling (all cores/threads operating) -> Needed for more complex forward models
-#       - Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
+#       - (Done on 14/07/2020) Forward modelling (all cores/threads operating) -> Needed for more complex forward models
+#       - (Not possible to parallelize (same seed for different workers))Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
 #   - Add iteration convergence critereon!
 #   - Lower the memory needs (how? not urgent)
 #   - Comment the codes!
@@ -272,16 +269,24 @@ class PREBEL:
                 if indexCurr > self.nbModels:
                     raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
+        timeBegin = time.time()
         if Parallelization:
-            notComputed = []
-            ForwardParallel = self.FORWARD
-            p = mp.Process(target=ForwardParallel,args=(self.MODPARAM.forwardFun["Fun"],self.nbModels,len(tmp),self.MODELS))
-            p.start()
-            p.join()
-            self.FORWARD = ForwardParallel
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [self.MODELS[i,:] for i in range(self.nbModels)]
+            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            outputs = pool.map(functionParallel,inputs)
+            pool.close()
+            pool.join()
+            self.FORWARD = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(self.nbModels) if self.FORWARD[i,0] is None]
             self.MODELS = np.delete(self.MODELS,notComputed,0)
             self.FORWARD = np.delete(self.FORWARD,notComputed,0)
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+            timeEnd = time.time()
+            print('The Parallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
         else:
             notComputed = []
             for i in range(self.nbModels):
@@ -295,6 +300,8 @@ class PREBEL:
             self.MODELS = np.delete(self.MODELS,notComputed,0)
             self.FORWARD = np.delete(self.FORWARD,notComputed,0)
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+            timeEnd = time.time()
+            print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
@@ -320,10 +327,10 @@ class PREBEL:
         self.CCA = cca_transform
         # 5) KDE:
         self.KDE = KDE(d_c,m_c)
-        self.KDE.KernelDensity()
+        self.KDE.KernelDensity(RemoveOutlier=True)
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000,Parallelization=False):
         # if (Dataset is None) and (NoiseModel is not None):
         #     NoiseModel = None 
         # 1) Initialize the Prebel class object
@@ -342,19 +349,36 @@ class PREBEL:
                 indexCurr += 1
                 if indexCurr > PrebelNew.nbModels:
                     raise Exception('The forward modelling failed!')
-        ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
-        notComputed = []
-        for i in range(np.size(ModelsKeep,axis=0)):
-            # print(i)
-            try:
-                ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
-            except:
-                ForwardKeep[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-        ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-        newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+        
+        if Parallelization:
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
+            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            outputs = pool.map(functionParallel,inputs)
+            pool.close()
+            pool.join()
+            ForwardKeep = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
+            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+        else:
+            ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
+            notComputed = []
+            for i in range(np.size(ModelsKeep,axis=0)):
+                # print(i)
+                try:
+                    ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
+                except:
+                    ForwardKeep[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
         PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
@@ -399,9 +423,9 @@ class PREBEL:
         # 5) KDE:
         PrebelNew.KDE = KDE(d_c,m_c)
         if Dataset is None:
-            PrebelNew.KDE.KernelDensity()
+            PrebelNew.KDE.KernelDensity(RemoveOutlier=True)
         else:
-            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise)
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=True)
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):
@@ -530,7 +554,8 @@ class POSTBEL:
                     achieved = True
             self.SAMPLES = Samples
 
-    def DataPost(self):
+    def DataPost(self, Parallelization=False):
+        # TODO: add option to parallelize in calling functions
         if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
             print('Forward modelling already conducted!')
             return self.SAMPLESDATA
@@ -541,19 +566,37 @@ class POSTBEL:
                 break
             except:
                 indexCurr += 1
+                if indexCurr > self.nbModels:
+                    raise Exception('The forward modelling failed!')
         self.SAMPLESDATA = np.zeros((self.nbSamples,len(tmp)))
-        notComputed = []
-        for i in range(self.nbSamples):
-            # print(i)
-            try:
-                self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
-            except:
-                self.SAMPLESDATA[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
-        self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
-        newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        if Parallelization:
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [self.SAMPLES[i,:] for i in range(self.nbSamples)]
+            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            outputs = pool.map(functionParallel,inputs)
+            pool.close()
+            pool.join()
+            self.SAMPLESDATA = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(self.nbSamples) if self.SAMPLESDATA[i,0] is None]
+            self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
+            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
+            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        else:
+            notComputed = []
+            for i in range(self.nbSamples):
+                # print(i)
+                try:
+                    self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
+                except:
+                    self.SAMPLESDATA[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
+            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
+            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newSamplesNb))
         self.nbSamples = newSamplesNb
         return self.SAMPLESDATA
@@ -662,6 +705,7 @@ class POSTBEL:
         else:
             sortIndex = np.arange(self.nbSamples)
         if Best is not None:
+            Best = int(Best)
             sortIndex = sortIndex[-Best:]
         if nbLayer is not None:# If the model can be displayed as layers
             nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
@@ -738,6 +782,7 @@ class POSTBEL:
         else:
             sortIndex = np.arange(self.nbSamples)
         if Best is not None:
+            Best = int(Best)
             sortIndex = sortIndex[-Best:]# Select then best models
         fig = pyplot.figure()
         ax = fig.add_subplot(1, 1, 1)

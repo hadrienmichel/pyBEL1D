@@ -16,6 +16,8 @@ conda install numpy
 conda install scipy
 conda install scikit-learn
 conda install matplotlib
+# For multiprocessing:
+pip install pathos
 # For the sNMR application
 conda config --add channels gimli --add channels conda-forge
 conda install pygimli

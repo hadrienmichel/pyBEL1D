@@ -4,6 +4,7 @@ import numpy as np
 import math as mt
 from scipy import stats
 from scipy.interpolate import interp1d
+from scipy.special import erfcinv
 from matplotlib import path
 from matplotlib import pyplot
 from itertools import groupby
@@ -20,7 +21,7 @@ class KDE:
         for i in range(self.nb_dim):
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
-    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None):
+    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False):
         if dim is None:
             dim = range(self.nb_dim) # We run all the dimensions
         elif np.max(dim) > self.nb_dim:
@@ -34,6 +35,19 @@ class KDE:
             dataset = self.datasets[i]
             L = dataset.shape
             L = L[0] # Only keeping the length of the dataset
+
+            # Remove outliers:
+            if RemoveOutlier:
+                c = -1/(mt.sqrt(2)*erfcinv(3/2))
+                isoutlierX = np.greater(dataset[:,0],3*c*np.median(np.abs(dataset[:,0]-np.median(dataset[:,0]))))
+                isoutlierY = np.greater(dataset[:,1],3*c*np.median(np.abs(dataset[:,1]-np.median(dataset[:,1]))))
+                isoutlier = np.logical_and(isoutlierX,isoutlierY)
+                if any(isoutlier):
+                    dataset = np.delete(dataset,np.where(isoutlier),0)
+                    LNew = dataset.shape
+                    LNew = LNew[0] # Only keeping the length of the dataset
+                    print('{} outlier removed!'.format(L-LNew))
+                    L = LNew
 
             # Defining the bands to test and choose the optimal one
             bandPossible = np.logspace(-5,0,100)
