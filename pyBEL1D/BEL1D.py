@@ -282,8 +282,8 @@ class PREBEL:
             pool.join()
             self.FORWARD = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(self.nbModels) if self.FORWARD[i,0] is None]
-            self.MODELS = np.delete(self.MODELS,notComputed,0)
-            self.FORWARD = np.delete(self.FORWARD,notComputed,0)
+            self.MODELS = np.array(np.delete(self.MODELS,notComputed,0),dtype=np.float64)
+            self.FORWARD = np.array(np.delete(self.FORWARD,notComputed,0),dtype=np.float64)
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
             timeEnd = time.time()
             print('The Parallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
@@ -327,7 +327,7 @@ class PREBEL:
         self.CCA = cca_transform
         # 5) KDE:
         self.KDE = KDE(d_c,m_c)
-        self.KDE.KernelDensity(RemoveOutlier=True)
+        self.KDE.KernelDensity(RemoveOutlier=True,Parallelization=Parallelization)
     
     @classmethod
     def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000,Parallelization=False):
@@ -423,9 +423,9 @@ class PREBEL:
         # 5) KDE:
         PrebelNew.KDE = KDE(d_c,m_c)
         if Dataset is None:
-            PrebelNew.KDE.KernelDensity(RemoveOutlier=True)
+            PrebelNew.KDE.KernelDensity(RemoveOutlier=True,Parallelization=Parallelization)
         else:
-            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=True)
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=True,Parallelization=Parallelization)
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):
@@ -581,8 +581,8 @@ class POSTBEL:
             pool.join()
             self.SAMPLESDATA = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(self.nbSamples) if self.SAMPLESDATA[i,0] is None]
-            self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
-            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
+            self.SAMPLES = np.array(np.delete(self.SAMPLES,notComputed,0),dtype=np.float64)
+            self.SAMPLESDATA = np.array(np.delete(self.SAMPLESDATA,notComputed,0),dtype=np.float64)
             newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
         else:
             notComputed = []
@@ -687,7 +687,7 @@ class POSTBEL:
             ax.label_outer()
         pyplot.show()
     
-    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None):
+    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None, Parallelization=False):
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -695,7 +695,7 @@ class POSTBEL:
             TrueModel = None
         if RMSE and len(self.SAMPLESDATA)==0:
             print('Computing the forward model for the posterior!')
-            self.DataPost()
+            self.DataPost(Parallelization=Parallelization)
         if RMSE:
             TrueData = self.DATA['True']
             RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
@@ -767,12 +767,12 @@ class POSTBEL:
         fig.suptitle("Posterior model visualtization",FontSize=16)
         pyplot.show()
     
-    def ShowDataset(self,RMSE=False,Prior=False,Best=None):
+    def ShowDataset(self,RMSE=False,Prior=False,Best=None,Parallelization=False):
         from matplotlib import colors
         # Model the dataset (if not already done)
         if len(self.SAMPLESDATA)==0:
             print('Computing the forward model for the posterior!')
-            self.DataPost()
+            self.DataPost(Parallelization=Parallelization)
         if RMSE:
             TrueData = self.DATA['True']
             RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))

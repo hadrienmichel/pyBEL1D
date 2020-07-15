@@ -8,6 +8,101 @@ from scipy.special import erfcinv
 from matplotlib import path
 from matplotlib import pyplot
 from itertools import groupby
+from pathos import multiprocessing as mp 
+from functools import partial
+
+def ParallelKernel(inputs):
+    dataset = inputs[0]
+    XTrue = inputs[1]
+    NoiseError = inputs[2]
+    # Initializing
+    L = dataset.shape
+    L = L[0] # Only keeping the length of the dataset
+    # Defining the bands to test and choose the optimal one
+    bandPossible = np.logspace(-5,0,100)
+    meanD, meanH = np.mean(dataset,axis=0)
+    nbTh = 50
+    th = np.linspace(0,2*np.pi,nbTh)
+    for j in bandPossible:
+        #circleOK = np.zeros((nbTh,2))
+        #for k in range(nbTh):
+        circleOK = np.column_stack(((3*j*np.cos(th) + meanD), (3*j*np.sin(th) + meanH)))# [j*3*mt.cos(th[k]) + meanD, j*3*mt.sin(th[k]) + meanH]
+        p = path.Path(circleOK)
+        inside = p.contains_points(dataset)
+        if np.sum(inside) > np.max([L*0.05, 100]):# 5% seems to work fine
+            break
+    band = j
+    # Defing some lambda functions
+    # 2D gaussian pdf:
+    # TODO: Vectorize this computation:
+    # z = lambda x,y,X,Y,b: ((x-X)**2)/(b**2) + ((y-Y)**2)/(b**2) - (2*(x-X)*(y-Y)/(b*b))
+    # pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
+    # Circle of points search: 
+    # circle = lambda X,Y,b: np.column_stack(((4*b*np.cos(th) + X), (4*b*np.sin(th) + Y)))
+    if XTrue is None:
+        Xaxis = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
+        Yaxis = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+        KDE = np.zeros((len(Xaxis),len(Yaxis)))
+        x_idx = 0
+        for x in Xaxis:
+            y_idx = 0
+            for y in Yaxis:
+                # p = path.Path(circle(x,y,band))
+                probaLarge = 4
+                impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+                if np.sum(impacts)>0:
+                    idxImpacts = np.where(impacts)
+                    idxImpacts = idxImpacts[0]
+                    # Test for vectorization:
+                    z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
+                    pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
+                    KDE[x_idx,y_idx] += np.sum(pdf)
+                    # End- test for vectorization
+                    # for j in np.arange(len(idxImpacts)):
+                    #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                    y_idx += 1
+                else:
+                    y_idx += 1                    
+            x_idx += 1
+        output = [KDE, Xaxis, Yaxis]
+        return output
+    else:
+        Xaxis = np.asarray(XTrue)
+        Yaxis = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+        KDE = np.zeros((1,len(Yaxis)))
+        bandY = band
+        if (NoiseError is not None) and NoiseError> band:
+            bandX = NoiseError
+        else:
+            bandX = band
+        x_idx = 0
+        x = Xaxis
+        y_idx = 0
+        for y in Yaxis:
+            # p = path.Path(circle(x,y,band))
+            probaLarge = 4
+            impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+            if np.sum(impacts)>0:
+                idxImpacts = np.where(impacts)
+                idxImpacts = idxImpacts[0]
+                # Test for vectorization:
+                z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), bandX**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), bandY**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), bandX*bandY)
+                pdf = np.multiply(1/(2*np.pi*bandX*bandY), np.exp(-z))
+                KDE[x_idx,y_idx] += np.sum(pdf)
+                # End- test for vectorization
+                # for j in np.arange(len(idxImpacts)):
+                #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                y_idx += 1
+            else:
+                y_idx += 1                    
+        KDEinit = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
+        KDE = np.divide(KDE,np.trapz(KDE,Yaxis))
+        CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
+        Dist = [[Yaxis], [KDE], [CDF]]
+        output = [KDEinit, Xaxis, Yaxis, Dist]
+        return output
+
+
 
 class KDE:
     def __init__(self,X,Y):
@@ -21,7 +116,7 @@ class KDE:
         for i in range(self.nb_dim):
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
-    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False):
+    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=False):
         if dim is None:
             dim = range(self.nb_dim) # We run all the dimensions
         elif np.max(dim) > self.nb_dim:
@@ -30,52 +125,110 @@ class KDE:
             raise Exception('XTrue is not compatible with the dimensions given.')
         if XTrue is None and NoiseError is not None:
             NoiseError is None
-        for i in dim:
-            # Initializing
-            dataset = self.datasets[i]
-            L = dataset.shape
-            L = L[0] # Only keeping the length of the dataset
+        if Parallelization:
+            FuncPara = partial(ParallelKernel)
+            # Parallel computing:
+            pool = mp.Pool(np.min([len(dim), mp.cpu_count()]))# Create the parallel pool with at most the number of dimensions
+            inKernel = []
+            for i in dim:
+                if (XTrue is not None) and (NoiseError is not None):
+                    inKernel.append([self.datasets[i], XTrue[i], NoiseError[i]])
+                elif XTrue is not None:
+                    inKernel.append([self.datasets[i], XTrue[i], None])
+                elif NoiseError is not None:
+                    inKernel.append([self.datasets[i], [None], NoiseError[i]])
+                else:
+                    inKernel.append([self.datasets[i], None, None])
+            outputs = pool.map(FuncPara,inKernel)
+            pool.close()
+            pool.join()
+            print('Parallel passed!')
+            idx = 0
+            for i in dim:
+                self.KDE[i] = outputs[idx][0]
+                self.Xaxis[i] = outputs[idx][1]
+                self.Yaxis[i] = outputs[idx][2]
+                if XTrue is not None:
+                    self.Dist[i] = outputs[idx][3]
+                idx += 1
+        else:
+            for i in dim:
+                # Initializing
+                dataset = self.datasets[i]
+                L = dataset.shape
+                L = L[0] # Only keeping the length of the dataset
 
-            # Remove outliers:
-            if RemoveOutlier:
-                c = -1/(mt.sqrt(2)*erfcinv(3/2))
-                isoutlierX = np.greater(dataset[:,0],3*c*np.median(np.abs(dataset[:,0]-np.median(dataset[:,0]))))
-                isoutlierY = np.greater(dataset[:,1],3*c*np.median(np.abs(dataset[:,1]-np.median(dataset[:,1]))))
-                isoutlier = np.logical_and(isoutlierX,isoutlierY)
-                if any(isoutlier):
-                    dataset = np.delete(dataset,np.where(isoutlier),0)
-                    LNew = dataset.shape
-                    LNew = LNew[0] # Only keeping the length of the dataset
-                    print('{} outlier removed!'.format(L-LNew))
-                    L = LNew
+                # Remove outliers:
+                if RemoveOutlier:
+                    c = -1/(mt.sqrt(2)*erfcinv(3/2))
+                    isoutlierX = np.greater(dataset[:,0],3*c*np.median(np.abs(dataset[:,0]-np.median(dataset[:,0]))))
+                    isoutlierY = np.greater(dataset[:,1],3*c*np.median(np.abs(dataset[:,1]-np.median(dataset[:,1]))))
+                    isoutlier = np.logical_and(isoutlierX,isoutlierY)
+                    if any(isoutlier):
+                        dataset = np.delete(dataset,np.where(isoutlier),0)
+                        LNew = dataset.shape
+                        LNew = LNew[0] # Only keeping the length of the dataset
+                        print('{} outlier removed!'.format(L-LNew))
+                        L = LNew
 
-            # Defining the bands to test and choose the optimal one
-            bandPossible = np.logspace(-5,0,100)
-            meanD, meanH = np.mean(dataset,axis=0)
-            nbTh = 50
-            th = np.linspace(0,2*np.pi,nbTh)
-            for j in bandPossible:
-                #circleOK = np.zeros((nbTh,2))
-                #for k in range(nbTh):
-                circleOK = np.column_stack(((3*j*np.cos(th) + meanD), (3*j*np.sin(th) + meanH)))# [j*3*mt.cos(th[k]) + meanD, j*3*mt.sin(th[k]) + meanH]
-                p = path.Path(circleOK)
-                inside = p.contains_points(dataset)
-                if np.sum(inside) > np.max([L*0.05, 100]):# 5% seems to work fine
-                    break
-            band = j
-            # Defing some lambda functions
-            # 2D gaussian pdf:
-            # TODO: Vectorize this computation:
-            # z = lambda x,y,X,Y,b: ((x-X)**2)/(b**2) + ((y-Y)**2)/(b**2) - (2*(x-X)*(y-Y)/(b*b))
-            # pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
-            # Circle of points search: 
-            # circle = lambda X,Y,b: np.column_stack(((4*b*np.cos(th) + X), (4*b*np.sin(th) + Y)))
-            if XTrue is None:
-                self.Xaxis[i] = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
-                self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
-                KDE = np.zeros((len(self.Xaxis[i]),len(self.Yaxis[i])))
-                x_idx = 0
-                for x in self.Xaxis[i]:
+                # Defining the bands to test and choose the optimal one
+                bandPossible = np.logspace(-5,0,100)
+                meanD, meanH = np.mean(dataset,axis=0)
+                nbTh = 50
+                th = np.linspace(0,2*np.pi,nbTh)
+                for j in bandPossible:
+                    #circleOK = np.zeros((nbTh,2))
+                    #for k in range(nbTh):
+                    circleOK = np.column_stack(((3*j*np.cos(th) + meanD), (3*j*np.sin(th) + meanH)))# [j*3*mt.cos(th[k]) + meanD, j*3*mt.sin(th[k]) + meanH]
+                    p = path.Path(circleOK)
+                    inside = p.contains_points(dataset)
+                    if np.sum(inside) > np.max([L*0.05, 100]):# 5% seems to work fine
+                        break
+                band = j
+                # Defing some lambda functions
+                # 2D gaussian pdf:
+                # TODO: Vectorize this computation:
+                # z = lambda x,y,X,Y,b: ((x-X)**2)/(b**2) + ((y-Y)**2)/(b**2) - (2*(x-X)*(y-Y)/(b*b))
+                # pdf = lambda x,y,X,Y,b: (1/(2*np.pi*b*b))*np.exp(-z(x,y,X,Y,b)/2)
+                # Circle of points search: 
+                # circle = lambda X,Y,b: np.column_stack(((4*b*np.cos(th) + X), (4*b*np.sin(th) + Y)))
+                if XTrue is None:
+                    self.Xaxis[i] = np.arange((np.min(dataset[:,0])-4*band),(np.max(dataset[:,0])+4*band),band/2)
+                    self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+                    KDE = np.zeros((len(self.Xaxis[i]),len(self.Yaxis[i])))
+                    x_idx = 0
+                    for x in self.Xaxis[i]:
+                        y_idx = 0
+                        for y in self.Yaxis[i]:
+                            # p = path.Path(circle(x,y,band))
+                            probaLarge = 4
+                            impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+                            if np.sum(impacts)>0:
+                                idxImpacts = np.where(impacts)
+                                idxImpacts = idxImpacts[0]
+                                # Test for vectorization:
+                                z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
+                                pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
+                                KDE[x_idx,y_idx] += np.sum(pdf)
+                                # End- test for vectorization
+                                # for j in np.arange(len(idxImpacts)):
+                                #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
+                                y_idx += 1
+                            else:
+                                y_idx += 1                    
+                        x_idx += 1
+                    self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
+                else:
+                    self.Xaxis[i] = np.asarray(XTrue[i])
+                    self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
+                    KDE = np.zeros((1,len(self.Yaxis[i])))
+                    bandY = band
+                    if (NoiseError is not None) and NoiseError[i]> band:
+                        bandX = NoiseError[i]
+                    else:
+                        bandX = band
+                    x_idx = 0
+                    x = self.Xaxis[i]
                     y_idx = 0
                     for y in self.Yaxis[i]:
                         # p = path.Path(circle(x,y,band))
@@ -85,8 +238,8 @@ class KDE:
                             idxImpacts = np.where(impacts)
                             idxImpacts = idxImpacts[0]
                             # Test for vectorization:
-                            z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), band**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), band**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), band*band)
-                            pdf = np.multiply(1/(2*np.pi*band*band), np.exp(-z))
+                            z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), bandX**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), bandY**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), bandX*bandY)
+                            pdf = np.multiply(1/(2*np.pi*bandX*bandY), np.exp(-z))
                             KDE[x_idx,y_idx] += np.sum(pdf)
                             # End- test for vectorization
                             # for j in np.arange(len(idxImpacts)):
@@ -94,42 +247,11 @@ class KDE:
                             y_idx += 1
                         else:
                             y_idx += 1                    
-                    x_idx += 1
-                self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
-            else:
-                self.Xaxis[i] = np.asarray(XTrue[i])
-                self.Yaxis[i] = np.arange((np.min(dataset[:,1])-4*band),(np.max(dataset[:,1])+4*band),band/2)
-                KDE = np.zeros((1,len(self.Yaxis[i])))
-                bandY = band
-                if (NoiseError is not None) and NoiseError[i]> band:
-                    bandX = NoiseError[i]
-                else:
-                    bandX = band
-                x_idx = 0
-                x = self.Xaxis[i]
-                y_idx = 0
-                for y in self.Yaxis[i]:
-                    # p = path.Path(circle(x,y,band))
-                    probaLarge = 4
-                    impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
-                    if np.sum(impacts)>0:
-                        idxImpacts = np.where(impacts)
-                        idxImpacts = idxImpacts[0]
-                        # Test for vectorization:
-                        z = np.divide(np.power(np.subtract(x,dataset[idxImpacts,0]),2), bandX**2) + np.divide(np.power(np.subtract(y,dataset[idxImpacts,1]),2), bandY**2) - np.divide(np.multiply(np.multiply(np.subtract(x,dataset[idxImpacts,0]), np.subtract(y,dataset[idxImpacts,1])), 2), bandX*bandY)
-                        pdf = np.multiply(1/(2*np.pi*bandX*bandY), np.exp(-z))
-                        KDE[x_idx,y_idx] += np.sum(pdf)
-                        # End- test for vectorization
-                        # for j in np.arange(len(idxImpacts)):
-                        #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
-                        y_idx += 1
-                    else:
-                        y_idx += 1                    
-                self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
-                KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
-                CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
-                Dist = [[self.Yaxis[i]], [KDE], [CDF]]
-                self.Dist[i] = Dist
+                    self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
+                    KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
+                    CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
+                    Dist = [[self.Yaxis[i]], [KDE], [CDF]]
+                    self.Dist[i] = Dist
     
     def ShowKDE(self,dim=None,Xvals=None):
         if dim is None:

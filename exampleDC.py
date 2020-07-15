@@ -67,7 +67,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Prebel = BEL1D.PREBEL(TestCase,nbModels=nbModPre)
         # We then run the prebel operations:
         print('Running PREBEL . . .')
-        Prebel.run(Parallelization=True)
+        Prebel.run(Parallelization=False)
         # You can observe the relationship using:
         # Prebel.KDE.ShowKDE()
 
@@ -83,8 +83,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         # Show the models parameters correlated with also the prior samples (Prebel.MODELS):
         Postbel.ShowPostCorr(OtherMethod=Prebel.MODELS)
         # Show the depth distributions of the parameters with the RMSE
-        Postbel.ShowPostModels(RMSE=True)
-        Postbel.ShowDataset(RMSE=True)
+        Postbel.ShowPostModels(RMSE=True,Parallelization=False)
+        Postbel.ShowDataset(RMSE=True,Parallelization=False)
         Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
         
         Prebel.ShowPreModels()
@@ -113,7 +113,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
                 PostbelTest.run(Dataset=Dataset,nbSamples=nbModPre,NoiseModel=ErrorModel)
-                # PostbelTest.KDE.ShowKDE(Xvals=PostbelTest.CCA.transform(PostbelTest.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
+                PostbelTest.KDE.ShowKDE(Xvals=PostbelTest.CCA.transform(PostbelTest.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
                 means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
                 end = time.time()
                 timings[idxIter] = end-start
@@ -121,7 +121,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ModLastIter = PostbelTest.SAMPLES
                 # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
                 # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=10*nbModPre,Parallelization=True)
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=100*nbModPre,Parallelization=True)
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -140,8 +140,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             distancePrevious = distance
             start = time.time()
         PostbelTest.ShowPostCorr(OtherMethod=PrebelIter.MODELS)
-        PostbelTest.ShowPostModels(RMSE=True)
-        PostbelTest.ShowDataset(RMSE=True,Prior=False)
+        PostbelTest.ShowPostModels(RMSE=True, Parallelization=True)
+        PostbelTest.ShowDataset(RMSE=True,Prior=False, Parallelization=True)
         timings = timings[:idxIter+1]
         means = means[:idxIter+1,:]
         stds = stds[:idxIter+1,:]
@@ -151,7 +151,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     IterTest = True
 
     if IterTest:
-        nbIter = 25
+        nbIter = 5
         timings, means, stds, names = testIter(nbIter=nbIter)
         pyplot.plot(np.arange(len(timings)),timings)
         pyplot.ylabel('Computation Time [sec]')
