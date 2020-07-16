@@ -9,6 +9,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     from pyBEL1D.utilities import Tools # For further post-processing
     from os import listdir
     from os.path import isfile, join
+    from pathos import multiprocessing as mp
+    from pathos import pools as pp
 
     # Parameters for the tested model
     # modelTrue = np.asarray([5.0, 0.05, 0.25, 0.1, 0.2])
@@ -67,7 +69,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Prebel = BEL1D.PREBEL(TestCase,nbModels=nbModPre)
         # We then run the prebel operations:
         print('Running PREBEL . . .')
-        Prebel.run(Parallelization=False)
+        pool = pp.ProcessPool(mp.cpu_count())
+        Prebel.run(Parallelization=[True,pool])
         # You can observe the relationship using:
         # Prebel.KDE.ShowKDE()
 
@@ -83,8 +86,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         # Show the models parameters correlated with also the prior samples (Prebel.MODELS):
         Postbel.ShowPostCorr(OtherMethod=Prebel.MODELS)
         # Show the depth distributions of the parameters with the RMSE
-        Postbel.ShowPostModels(RMSE=True,Parallelization=False)
-        Postbel.ShowDataset(RMSE=True,Parallelization=False)
+        Postbel.ShowPostModels(RMSE=True,Parallelization=[True,pool])
+        Postbel.ShowDataset(RMSE=True,Parallelization=[True,pool])
         Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
         
         Prebel.ShowPreModels()
@@ -93,27 +96,33 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Postbel.ShowDataset(RMSE=True,Best=1)
         # Get key statistics
         means, stds = Postbel.GetStats()
+        pool.terminate()
+        # TODO: debug save functions
+        BEL1D.SavePREBEL(CurrentPrebel=Prebel,Filename="TestSave")
+        BEL1D.SavePOSTBEL(CurrentPostbel=Postbel,Filename="TestSave")
+        BEL1D.SaveSamples(CurrentPostbel=Postbel,Data=True,Filename="TestSave")
         return means, stds
 
     # Now, let's see how to iterate:
     def testIter(nbIter=5):
-        nbModPre = 10000
+        nbModPre = 1000
         means = np.zeros((nbIter,nbParam))
         stds = np.zeros((nbIter,nbParam))
         timings = np.zeros((nbIter,))
         start = time.time()
+        pool = pp.ProcessPool(mp.cpu_count())
         diverge = True
         distancePrevious = 1e10
         for idxIter in range(nbIter):
             if idxIter == 0: # Initialization
                 TestCase = BEL1D.MODELSET().DC(prior=priorDC, Frequency=FreqMIR)
                 PrebelIter = BEL1D.PREBEL(TestCase,nbModPre)
-                PrebelIter.run(Parallelization=True)
+                PrebelIter.run(Parallelization=[True,pool])
                 ModLastIter = PrebelIter.MODELS
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
                 PostbelTest.run(Dataset=Dataset,nbSamples=nbModPre,NoiseModel=ErrorModel)
-                PostbelTest.KDE.ShowKDE(Xvals=PostbelTest.CCA.transform(PostbelTest.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
+                # PostbelTest.KDE.ShowKDE(Xvals=PostbelTest.CCA.transform(PostbelTest.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
                 means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
                 end = time.time()
                 timings[idxIter] = end-start
@@ -121,7 +130,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ModLastIter = PostbelTest.SAMPLES
                 # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
                 # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=100*nbModPre,Parallelization=True)
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=100*nbModPre,Parallelization=[True,pool])
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -131,28 +140,30 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 timings[idxIter] = end-start
             diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=1e-5)
             print('Wasserstein distance: {}'.format(distance))
-            if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<2):
+            if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<0.1):
                 # Convergence acheived if:
                 # 1) Distance below threshold
-                # 2) Distance does not vary significantly (less than 2%)
+                # 2) Distance does not vary significantly (less than 2.5%)
                 print('Model has converged at iter {}!'.format(idxIter+1))
                 break
             distancePrevious = distance
             start = time.time()
         PostbelTest.ShowPostCorr(OtherMethod=PrebelIter.MODELS)
-        PostbelTest.ShowPostModels(RMSE=True, Parallelization=True)
-        PostbelTest.ShowDataset(RMSE=True,Prior=False, Parallelization=True)
+        PostbelTest.ShowPostModels(RMSE=True, Parallelization=[True,pool])
+        PostbelTest.ShowDataset(RMSE=True,Prior=False, Parallelization=[True,pool])
         timings = timings[:idxIter+1]
         means = means[:idxIter+1,:]
         stds = stds[:idxIter+1,:]
         paramnames = PostbelTest.MODPARAM.paramNames["NamesS"] # For the legend of the futur graphs
+        pool.terminate
         return timings, means, stds, paramnames
 
-    IterTest = True
+    IterTest = False
 
     if IterTest:
-        nbIter = 5
+        nbIter = 100
         timings, means, stds, names = testIter(nbIter=nbIter)
+        print('Total time: {} seconds'.format(np.sum(timings)))
         pyplot.plot(np.arange(len(timings)),timings)
         pyplot.ylabel('Computation Time [sec]')
         pyplot.xlabel('Iteration nb.')
@@ -169,7 +180,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         pyplot.show()
 
     if not(IterTest):
-        test(nbModPre=10000)
+        test(nbModPre=1000)
 
 
     # nbModPre = 10000

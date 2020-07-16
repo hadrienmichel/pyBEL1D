@@ -10,6 +10,7 @@ import sklearn
 from sklearn import decomposition, cross_decomposition
 from scipy import stats
 from pathos import multiprocessing as mp # No issues with pickeling with this
+from pathos import pools as pp
 from functools import partial
 import time
 
@@ -25,7 +26,6 @@ def ForwardParallelFun(Model, function, nbVal):
     except:
         ForwardComputed = [None]*nbVal
     return ForwardComputed
-
 
 # TODO/DONE:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
@@ -243,7 +243,7 @@ class PREBEL:
         # KDE: a class pobject KDE (custom)
         self.KDE = []
 
-    def run(self, Parallelization=False):
+    def run(self, Parallelization=[False, None]):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
@@ -270,16 +270,22 @@ class PREBEL:
                     raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
         timeBegin = time.time()
-        if Parallelization:
+        if Parallelization[0]:
             # We create a partial function that has a fixed fowrard function. The remaining arguments are :
             #   - Model: a numpy array containing the model to compute
             # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
             functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
             inputs = [self.MODELS[i,:] for i in range(self.nbModels)]
-            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                Parallelization[1] = pool
+                terminatePool = True
             outputs = pool.map(functionParallel,inputs)
-            pool.close()
-            pool.join()
+            # pool.close()
+            # pool.join()
             self.FORWARD = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(self.nbModels) if self.FORWARD[i,0] is None]
             self.MODELS = np.array(np.delete(self.MODELS,notComputed,0),dtype=np.float64)
@@ -328,9 +334,11 @@ class PREBEL:
         # 5) KDE:
         self.KDE = KDE(d_c,m_c)
         self.KDE.KernelDensity(RemoveOutlier=True,Parallelization=Parallelization)
+        if Parallelization[0] and terminatePool:
+            pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000,Parallelization=False):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000,Parallelization=[False,None]):
         # if (Dataset is None) and (NoiseModel is not None):
         #     NoiseModel = None 
         # 1) Initialize the Prebel class object
@@ -350,16 +358,23 @@ class PREBEL:
                 if indexCurr > PrebelNew.nbModels:
                     raise Exception('The forward modelling failed!')
         
-        if Parallelization:
+        if Parallelization[0]:
             # We create a partial function that has a fixed fowrard function. The remaining arguments are :
             #   - Model: a numpy array containing the model to compute
             # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
             functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
             inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                Parallelization[1] = pool
+                terminatePool = True
             pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
             outputs = pool.map(functionParallel,inputs)
-            pool.close()
-            pool.join()
+            # pool.close()
+            # pool.join()
             ForwardKeep = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
             ModelsKeep = np.delete(ModelsKeep,notComputed,0)
@@ -426,6 +441,8 @@ class PREBEL:
             PrebelNew.KDE.KernelDensity(RemoveOutlier=True,Parallelization=Parallelization)
         else:
             PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=True,Parallelization=Parallelization)
+        if Parallelization[0] and terminatePool:
+            pool.terminate()
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):
@@ -554,7 +571,7 @@ class POSTBEL:
                     achieved = True
             self.SAMPLES = Samples
 
-    def DataPost(self, Parallelization=False):
+    def DataPost(self, Parallelization=[False,None]):
         # TODO: add option to parallelize in calling functions
         if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
             print('Forward modelling already conducted!')
@@ -575,15 +592,23 @@ class POSTBEL:
             # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
             functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
             inputs = [self.SAMPLES[i,:] for i in range(self.nbSamples)]
-            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+                # pool.restart()
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                terminatePool = True
             outputs = pool.map(functionParallel,inputs)
-            pool.close()
-            pool.join()
+            # pool.close()
+            # pool.join()
             self.SAMPLESDATA = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(self.nbSamples) if self.SAMPLESDATA[i,0] is None]
             self.SAMPLES = np.array(np.delete(self.SAMPLES,notComputed,0),dtype=np.float64)
             self.SAMPLESDATA = np.array(np.delete(self.SAMPLESDATA,notComputed,0),dtype=np.float64)
             newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            if terminatePool:
+                pool.terminate()
         else:
             notComputed = []
             for i in range(self.nbSamples):
@@ -687,7 +712,7 @@ class POSTBEL:
             ax.label_outer()
         pyplot.show()
     
-    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None, Parallelization=False):
+    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None, Parallelization=[False,None]):
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -767,7 +792,7 @@ class POSTBEL:
         fig.suptitle("Posterior model visualtization",FontSize=16)
         pyplot.show()
     
-    def ShowDataset(self,RMSE=False,Prior=False,Best=None,Parallelization=False):
+    def ShowDataset(self,RMSE=False,Prior=False,Best=None,Parallelization=[False, None]):
         from matplotlib import colors
         # Model the dataset (if not already done)
         if len(self.SAMPLESDATA)==0:
@@ -822,3 +847,85 @@ class POSTBEL:
         stds = np.std(self.SAMPLES,axis=0)
         return means, stds
     
+# Saving/loading operations:
+def SavePREBEL(CurrentPrebel:PREBEL, Filename='PREBEL_Saved'):
+    '''SavePREBEL is a function that saves the current prebel class object.
+
+    It requieres as input:
+        - CurrentPrebel: a PREBEL class object
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.prebel" in the current directory
+     (or the directory stated in the Filename input)
+    '''
+    import dill
+    file_write = open(Filename+'.prebel','wb')
+    dill.dump(CurrentPrebel,file_write)
+    file_write.close()
+
+def LoadPREBEL(Filename='PREBEL_Saved.prebel'):
+    '''LoadPREBEL is a function that loads the prebel class object stored in Filename.
+
+    It requieres as input:
+        - FileName: a string with the name of the saved file
+
+    The function returns the loaded PREBEL object.
+    '''
+    import dill
+    file_read = open(Filename,'rb')
+    PREBEL = dill.load(file_read)
+    file_read.close()
+    return PREBEL
+
+def SavePOSTBEL(CurrentPostbel:POSTBEL, Filename='PREBEL_Saved'):
+    '''SavePOSTBEL is a function that saves the current postbel class object.
+
+    It requieres as input:
+        - CurrentPostbel: a POSTBEL class object
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.postbel" in the current directory
+     (or the directory stated in the Filename input)
+    '''
+    import dill
+    file_write = open(Filename+'.postbel','wb')
+    dill.dump(CurrentPostbel,file_write)
+    file_write.close()
+
+def LoadPOSTBEL(Filename='POSTBEL_Saved.prebel'):
+    '''LoadPOSTBEL is a function that loads the postbel class object stored in Filename.
+
+    It requieres as input:
+        - FileName: a string with the name of the saved file
+
+    The function returns the loaded POSTBEL object.
+    '''
+    import dill
+    file_read = open(Filename,'rb')
+    POSTBEL = dill.load(file_read)
+    file_read.close()
+    return POSTBEL
+
+def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
+    '''SaveSamples is a function that saves the sampled models from a POSTBEL class object.
+
+    It requieres as input:
+        - CurrentPostbel: a POSTBEL class object
+        - Data: a boolean (False=not saved, True=saved)
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.models" (and optionaly "Filename.datas") 
+    in the current directory (or the directory stated in the Filename input). The files 
+    are classical ascii files
+    '''
+    if len(CurrentPostbel.SAMPLES)==0:
+        raise EnvironmentError('No samples in current POSTBEL object!')
+    if Data:
+        if len(CurrentPostbel.SAMPLESDATA)==0:
+            print('Computing the forward model for the posterior!')
+            CurrentPostbel.DataPost() # By default not parallelized
+        np.savetxt(Filename+'.datas',CurrentPostbel.SAMPLESDATA,delimiter='\t')
+    np.savetxt(Filename+'.models',CurrentPostbel.SAMPLES,delimiter='\t')
+
+    
+

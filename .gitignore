@@ -7,3 +7,7 @@ pyBELD/__pycache__/
 *.pdf
 *.vscode
 __pycache__/
+*.datas
+*.models
+*.postbel
+*.prebel

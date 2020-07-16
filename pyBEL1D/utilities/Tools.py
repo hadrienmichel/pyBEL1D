@@ -20,7 +20,7 @@ def Sampling(prior,conditions=None,nbModels=1000):
             Models[:,i]=prior[i].rvs(size=nbModels)
     else:
         # Checking that the conditions are in a list
-        if not(isalambda(conditions)):
+        if not(not(isalambda(conditions)):
             raise Exception('conditions should be a lambda. conditions is a {}'.format(type(conditions)))
         # Sampling the models:
         achieved = False

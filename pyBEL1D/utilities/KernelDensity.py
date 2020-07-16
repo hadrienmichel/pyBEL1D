@@ -9,6 +9,7 @@ from matplotlib import path
 from matplotlib import pyplot
 from itertools import groupby
 from pathos import multiprocessing as mp 
+from pathos import pools as pp
 from functools import partial
 
 def ParallelKernel(inputs):
@@ -116,7 +117,7 @@ class KDE:
         for i in range(self.nb_dim):
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
-    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=False):
+    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=[False, None]):
         if dim is None:
             dim = range(self.nb_dim) # We run all the dimensions
         elif np.max(dim) > self.nb_dim:
@@ -125,10 +126,14 @@ class KDE:
             raise Exception('XTrue is not compatible with the dimensions given.')
         if XTrue is None and NoiseError is not None:
             NoiseError is None
-        if Parallelization:
+        if Parallelization[0]:
             FuncPara = partial(ParallelKernel)
             # Parallel computing:
-            pool = mp.Pool(np.min([len(dim), mp.cpu_count()]))# Create the parallel pool with at most the number of dimensions
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                # pool.restart()
+            else:
+                pool = pp.ProcessPool(np.min([len(dim), mp.cpu_count()]))# Create the parallel pool with at most the number of dimensions
             inKernel = []
             for i in dim:
                 if (XTrue is not None) and (NoiseError is not None):
@@ -140,8 +145,8 @@ class KDE:
                 else:
                     inKernel.append([self.datasets[i], None, None])
             outputs = pool.map(FuncPara,inKernel)
-            pool.close()
-            pool.join()
+            # pool.close()
+            # pool.join()
             print('Parallel passed!')
             idx = 0
             for i in dim:
