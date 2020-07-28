@@ -105,7 +105,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
     # Now, let's see how to iterate:
     def testIter(nbIter=5):
-        nbModPre = 1000
+        nbModPre = 10000
         means = np.zeros((nbIter,nbParam))
         stds = np.zeros((nbIter,nbParam))
         timings = np.zeros((nbIter,))
@@ -130,7 +130,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ModLastIter = PostbelTest.SAMPLES
                 # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
                 # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=100*nbModPre,Parallelization=[True,pool])
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=50*nbModPre,Parallelization=[True,pool])
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -158,7 +158,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         pool.terminate
         return timings, means, stds, paramnames
 
-    IterTest = False
+    IterTest = True
 
     if IterTest:
         nbIter = 100
@@ -181,7 +181,6 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
     if not(IterTest):
         test(nbModPre=1000)
-
 
     # nbModPre = 10000
     # print('Initializing . . .')

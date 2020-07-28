@@ -44,6 +44,33 @@ def ForwardParallelFun(Model, function, nbVal):
 #   - Check KDE behaviour whit outliers (too long computations and useless?)
 
 class MODELSET:
+    '''MODELSET is an object class that can be initialized using:
+        - the dedicated class methods (DC and SNMR) - see dedicated help
+        - the __init__ method
+    
+    To initialize with the init method, the different arguments are:
+        - prior (list of scipy stats objects): a list describing the statistical
+                                                distributions for the prior model space
+        - cond (callable lambda function): a function that returns True or False if the
+                                            model given in argument respects (True) the 
+                                            conditions or not (False)
+        - method (string): name of the method (e.g. "sNMR")
+        - forwardFun (dictionary): a dictionary with two entries
+                o "Fun" (callable lambda function): the forward model function for a given 
+                                                    model
+                o "Axis" (np.array): the X axis along which the computation is done
+        - paramNames (dictionary): a dictionary with multiple entries
+                o "NamesFU" (list): Full names of all the parameters with units
+                o "NamesSU" (list): Short names of all the parameters with units
+                o "NamesS" (list): Short names of all the parameters without units
+                o "NamesGlobal" (list): Full names of the global parameters (not layered)
+                o "NamesGlobalS" (list): Short names of the global parameters (not layered)
+                o "DataUnits" (string): Units for the dataset,
+                o "DataName" (string): Name of the Y-axis of the dataset (result from the 
+                                        forward model)
+                o "DataAxis" (string): Name of the X-axis of the dataset
+        - nbLayer (int): the number of layers for the model (None if not layered)
+    '''
 
     def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
@@ -121,7 +148,7 @@ class MODELSET:
                     NamesShort[ident] = NShort[j] + str(i+1) + "}"
                     ident += 1
         method = "sNMR"
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]"}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]","DataName":"Amplitude [V]","DataAxis":"Time/pulses [/]"}# The representation is automated -> no time displayed since pulses are agregated
         KFile = sNMR.MRS()
         KFile.loadKernel(Kernel)
         ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
@@ -205,13 +232,14 @@ class PREBEL:
     """Object that is used to store the PREBEL elements:
     
     For a given model set (see MODELSET class), the PREBEL class
-    enables all the computations taht takes place previous to any 
+    enables all the computations that takes place previous to any 
     field data knowledge. It takes as argument:
-        - method (str): the name of the geophysical method
-        - prior (list of stats): the prior description
-        - nbModels (int): the number of models to sample in the prior
+        - MODPARAM (MODELSET class object): a previously defined
+                                            MODLESET class object
+        - nbModels (int): the number of models to sample from the
+                          prior (dafault = 1000)
     """
-    def __init__(self,MODPARAM:MODELSET,nbModels=1000):
+    def __init__(self,MODPARAM:MODELSET,nbModels:int=1000):
         # PRIOR: a list of scipy.stats distributions describing 
         # the prior model space for all the parameters
         self.PRIOR = MODPARAM.prior
@@ -248,7 +276,12 @@ class PREBEL:
 
         It is an instance method that does not need any arguments.
 
-        If the argument Parallelization is True, the forward model and the KDE will be parallelized
+        If the argument Parallelization (list) is given it can either be:
+            - [False, ?]: no parallel runs
+            - [True, None]: parallel runs without pool provided
+            - [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                            provided
+        The default is no parallel runs.
         """
 
         # 1) Sampling (if not done already):
@@ -338,7 +371,25 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000,Parallelization=[False,None]):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified:bool=False,nbMax:int=100000,Parallelization:list=[False,None]):
+        ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
+
+        It takes as arguments:
+            - PREBEL (PREBEL): The previous PREBEL object
+            - POSTBEL (POSTBEL): the current POSTBEL object
+        And optional arguments are:
+            - Dataset (np.array): the field dataset
+            - NoiseModel (list): the list defining the noise model (see dedicated functions)
+            - Simplified (bool): ramdom sampling of a number of models from componded prior or not
+                                 (default=False)
+            - nbMax (int): the number of random samples to keep if Simplified=True (default=100000)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided 
+
+        '''
         # if (Dataset is None) and (NoiseModel is not None):
         #     NoiseModel = None 
         # 1) Initialize the Prebel class object
@@ -446,6 +497,10 @@ class PREBEL:
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):
+        '''SHOWPREMODELS is a function that displays the models sampled from the prior model space.
+
+        The optional argument TrueModel (np.array) is an array containing the benchmark model.
+        '''
         from matplotlib import colors
         nbParam = self.MODELS.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -483,6 +538,9 @@ class PREBEL:
         pyplot.show()
 
     def ShowPriorDataset(self):
+        '''SHOWPRIORDATASET is a function that displays the ensemble of datasets modelled from
+        sampled prior models.
+        '''
         sortIndex = np.arange(self.nbModels)
         fig = pyplot.figure()
         ax = fig.add_subplot(1, 1, 1)
@@ -513,7 +571,23 @@ class POSTBEL:
         self.SAMPLES = []
         self.SAMPLESDATA = []
 
-    def run(self,Dataset,nbSamples=1000,Graphs=False,NoiseModel=None):
+    def run(self,Dataset,nbSamples:int=1000,Graphs:bool=False,NoiseModel:list=None):
+        '''RUN is a method that runs POSTBEL operations for a given dataset.
+
+        It takes as argument:
+            - Dataset (np.array): the field dataset
+        
+        Optional arguments are:
+            - nbSamples (int): the number of posterior models to sample
+                               (defalut=1000)
+            - Graphs (bool): show KDE graphs (True) or not (False)
+                             (default=False)
+            - NoiseModel (list): the list defining the noise model 
+                                 (see dedicated functions)
+                                 (default=None)
+
+
+        '''
         self.nbSamples = nbSamples
         # Transform dataset to CCA space:
         Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
@@ -572,6 +646,15 @@ class POSTBEL:
             self.SAMPLES = Samples
 
     def DataPost(self, Parallelization=[False,None]):
+        '''DATAPOST is a function that computes the forward model for all the 
+        models sampled from the posterior.
+
+        The optional argument Parallelization (list) can take as values:
+            - [False, _]: no parallel runs (default)
+            - [True, None]: parallel runs without pool provided
+            - [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                            provided 
+        '''
         # TODO: add option to parallelize in calling functions
         if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
             print('Forward modelling already conducted!')
@@ -627,6 +710,10 @@ class POSTBEL:
         return self.SAMPLESDATA
 
     def ShowPost(self,TrueModel=None):
+        '''SHOWPOST shows the posterior parameter distributions (uncorrelated).
+
+        The optional argument TrueModel (np.array) is an array containing the benchmark model.
+        '''
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
             TrueModel = None
@@ -641,6 +728,12 @@ class POSTBEL:
         pyplot.show()
     
     def ShowPostCorr(self,TrueModel=None,OtherMethod=None):
+        '''SHOWPOSTCORR shows the posterior parameter distributions (correlated).
+
+        The optional arguments are:
+            - TrueModel (np.array): an array containing the benchmark model
+            - OtherMethod (np.array): an array containing an ensemble of models
+        '''
         # Adding the graph with correlations: 
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
@@ -712,7 +805,20 @@ class POSTBEL:
             ax.label_outer()
         pyplot.show()
     
-    def ShowPostModels(self,TrueModel=None, RMSE: bool=False, Best: int=None, Parallelization=[False,None]):
+    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None]):
+        '''SHOWPOSTMODELS shows the sampled posterior models.
+
+        The optional argument are:
+            - TrueModel (np.array): an array containing the benchmark model.
+            - RMSE (bool):  show the RMSE (True) or not (False)
+                            (default=False)
+            - Best (int): only show the X best models (X is the argument)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided
+        '''
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -792,7 +898,21 @@ class POSTBEL:
         fig.suptitle("Posterior model visualtization",FontSize=16)
         pyplot.show()
     
-    def ShowDataset(self,RMSE=False,Prior=False,Best=None,Parallelization=[False, None]):
+    def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None]):
+        '''SHOWPOSTMODELS shows the sampled posterior models.
+
+        The optional argument are:
+            - RMSE (bool):  show the RMSE (True) or not (False)
+                            (default=False)
+            - Prior (bool): show the sampled prior datasets below (True) or not (False)
+                            (default=False)
+            - Best (int): only show the X best models (X is the argument)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided
+        '''
         from matplotlib import colors
         # Model the dataset (if not already done)
         if len(self.SAMPLESDATA)==0:
@@ -843,6 +963,9 @@ class POSTBEL:
         pyplot.show()
 
     def GetStats(self):
+        '''GETSTATS is a method that returns the means and standard deviations of the 
+        parameters distributions.
+        '''
         means = np.mean(self.SAMPLES,axis=0)
         stds = np.std(self.SAMPLES,axis=0)
         return means, stds
@@ -926,6 +1049,3 @@ def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
             CurrentPostbel.DataPost() # By default not parallelized
         np.savetxt(Filename+'.datas',CurrentPostbel.SAMPLESDATA,delimiter='\t')
     np.savetxt(Filename+'.models',CurrentPostbel.SAMPLES,delimiter='\t')
-
-    
-
