@@ -1,12 +1,24 @@
-class cond:
-    def __init__(self):
-        self.function = None
+# class cond:
+#     def __init__(self):
+#         self.function = None
 
 def isalambda(v):# From: https://stackoverflow.com/questions/3655842/how-can-i-test-whether-a-variable-holds-a-lambda
   LAMBDA = lambda:0
   return isinstance(v, type(LAMBDA)) and v.__name__ == LAMBDA.__name__
 
-def Sampling(prior,conditions=None,nbModels=1000):
+def Sampling(prior:list,conditions=None,nbModels:int=1000):
+    '''SAMPLING is a function that samples models from a gievn prior model space.
+
+    It takes as arguments:
+        - prior (list): a list of scipy stats distributions describing the prior
+                        model space
+        - condtions (optional - callable lambda function): a function that returns
+                o True if the sampled model respects the conditions
+                o False otherwise
+        - nbModels (int): the number of models to sample (default=1000)
+
+    It returns the sampled models in a numpy array
+    '''
     import numpy as np
     # Checking that prior is a list:
     if not(type(prior) is list):
@@ -42,6 +54,23 @@ def Sampling(prior,conditions=None,nbModels=1000):
     return Models
 
 def PropagateNoise(POSTBEL,NoiseLevel=None):
+    '''PROPAGATENOISE is a function that computes the impact of noise on the PCA scores
+    for a given problem (POSTBEL) and a given noise level (NoiseLevel).
+
+    The arguments are:
+        - POSTBEL (POSTBEL): a POSTBEL class object that has been initialized.
+        - NoiseLevel (list): a list of parameters for the noise model (depending on TypeMod)
+            o TypeMod=="sNMR": list with 1 value for the standard deviation
+            o TypeMod=="DC": list with 2 values for the model: 
+                                - NoiseLevel[0] = a
+                                - NoiseLevel[1] = b
+                            The standard deviation is given by: a*V + b/f, where V is the 
+                            observed velocity and f the frequency
+            o TypeMod=="General": list with a given standard deviation for all the values 
+                                  of the dataset.
+    
+    It returns Noise, a np.array containing the noise propagated in the CCA space.
+    '''
     import numpy as np 
     TypeMod = POSTBEL.MODPARAM.method
     dim = POSTBEL.CCA.x_scores_.shape[1] # Number of dimensions for noise propagation
@@ -84,31 +113,48 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         Cf = np.squeeze(np.max(COV_diff,axis=0))
         Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
+    elif TypeMod is "General":
+        if not(isinstance(NoiseLevel,list)):
+            raise Exception('NoiseLevel is not a list!')
+        if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
+            raise Exception('Wrong length for NoiseLevel list.')
+        nbTest = int(np.ceil(POSTBEL.nbModels/10)) 
+        COV_diff = np.zeros((nbTest,dimD,dimD))
+        index = np.random.permutation(np.arange(POSTBEL.nbModels))
+        index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
+        data = POSTBEL.FORWARD[index,:] 
+        dataNoisy = data + np.multiply(np.random.randn(nbTest,POSTBEL.FORWARD.shape[1]),np.repeat(np.asarray(NoiseLevel),nbTest,axis=0))
+        scoreData = POSTBEL.PCA['Data'].transform(data)
+        scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
+        for i in range(nbTest):
+           COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
+        Cf = np.squeeze(np.max(COV_diff,axis=0))
+        Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
+        Noise = np.diag(Cc)
     else:
         raise RuntimeWarning('No noise propagation defined for the gievn method!')
     return Noise
 
-def ConvergeTest(SamplesA, SamplesB,nbClassDim=10, tol=5e-4):
+def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
+    ''' CONVERGETEST is a function that returns the mean Wasserstein distance between 
+    two sets of N-dimensional datapoints.
+    
+    It takes as arguments:
+        - SamplesA (np.array): the base samples
+        - SamplesB (np.array): the new samples
+        - tol (float): the tolerance on the distance (default=5e-3)
+    
+    It returns:
+        - diverge (bool): True if the samples diverge, False otherwise
+        - distance (float): the mean Wasserstein distance
+
+    '''
     import numpy as np 
     from scipy import stats
     from sklearn.preprocessing import normalize
-    # 0) Find the ranges of each axis:
-    # mins = np.min(np.append(SamplesA, SamplesB, axis=0),axis=0)
-    # maxs = np.max(np.append(SamplesA, SamplesB, axis=0),axis=0)
     nbDim = np.size(SamplesA,axis=1)
     if np.size(SamplesB,axis=1) != nbDim:
         raise Exception('SamplesA and SamplesB must have the same number of features!')
-    # TODO: Manage memory! The use of memory for the operations is HUGE!
-    #
-    # Instead of comparing the whole distributions (impossible for memory management!), 
-    # we will compare the distributions in 2D spaces and analyse all the combinations 
-    # We thus have to analyse 'np.cumsum(np.arange(1,nbDim))' combinations with memory
-    # needs closer to acheivable results (with 100 values per axis, we get per combination 
-    # (100x100)xnp.unit64).
-    # The complete analysis would requier (100**nbDim)xnp.uint64, impossible for large
-    # dimension models.
-    #
-    # 1) Convert the samples array to Discrete probabilities in n-dimensions
     # SamplesA is the base and SamplesB is compared to it!
     SamplesANorm, norms = normalize(SamplesA,axis=0,return_norm=True)
     SamplesBNorm = SamplesB/norms
@@ -116,29 +162,10 @@ def ConvergeTest(SamplesA, SamplesB,nbClassDim=10, tol=5e-4):
     # SamplesBNorm = SamplesB
     distance = 0
     nbVal = 0
-    nbValOut = 0
     for i in range(nbDim):
-        for j in range(nbDim):
-            if i==j:
-                # Check if the 1D distributions are similar
-                nbVal += 1
-                distance += stats.wasserstein_distance(SamplesANorm[:,i],SamplesBNorm[:,i]) # Return wasserstein distance between distributions --> "Small" = converged
-            # elif i < j:
-            #     # Check if the 2D combinations are similar: DOI 10.1007/s10851-014-0506-3
-            #     # Build classes of the first dimension to infer the second dimension histogram
-            #     _, binEdges = np.histogram(np.append(SamplesANorm[:,i],SamplesBNorm[:,i],axis=0),bins=nbClassDim)
-            #     idxSamplesA = np.digitize(SamplesANorm[:,i],binEdges)
-            #     idxSamplesB = np.digitize(SamplesBNorm[:,i],binEdges)
-            #     for binCurr in range(len(binEdges)):
-            #         SampAComp = np.squeeze(SamplesANorm[np.where(idxSamplesA==binCurr+1),j])
-            #         SampBComp = np.squeeze(SamplesBNorm[np.where(idxSamplesB==binCurr+1),j])
-            #         if SampBComp.size > 1 and SampAComp.size > 1:
-            #             nbVal += 1
-            #             distance += stats.wasserstein_distance(SampAComp,SampBComp)
-            #         else:
-            #             nbValOut += 1
-            #             distance += 1
-    print('Nb non-corresponding bins: {}'.format(nbValOut))
+        # Check if the 1D distributions are similar
+        nbVal += 1
+        distance += stats.wasserstein_distance(SamplesANorm[:,i],SamplesBNorm[:,i]) # Return wasserstein distance between distributions --> "Small" = converged
     distance /= nbVal
     if distance <= tol:
         diverge = False

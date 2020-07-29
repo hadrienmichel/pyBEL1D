@@ -7,12 +7,14 @@ from scipy.interpolate import interp1d
 from scipy.special import erfcinv
 from matplotlib import path
 from matplotlib import pyplot
-from itertools import groupby
 from pathos import multiprocessing as mp 
 from pathos import pools as pp
 from functools import partial
 
 def ParallelKernel(inputs):
+    '''Computation of the kernel density estimation simplified for parallel computation.
+    Do not use standalone.
+    '''
     dataset = inputs[0]
     XTrue = inputs[1]
     NoiseError = inputs[2]
@@ -106,6 +108,24 @@ def ParallelKernel(inputs):
 
 
 class KDE:
+    '''KDE is a class object that contains all the informations about the kernel density estimation.
+    To initialize, it requieres 2 arguments:
+        - X (np.array): the X values of the datasets
+        - Y (np.array): the Y values of the datasets
+    The data contained in the class are:
+        - nb_dim (int): the number of dimensions that exist
+        - datasets (list): a list of [X Y] datasets of lenght nb_dim
+        - Xaxis (list): a list of np.array containing the X-axis along which KDE is computed
+        - Yaxis (list): a list of np.array containing the Y-axis along which KDE is computed
+        - KDE (list): a list of np.array containing the computed kernel density estimations
+        - Dist (list): a list of elements describing the distributions for a given X value.
+    
+    The class has several methods:
+        - KernelDensity: Computed KDE
+        - ShowKDE: Show graphs with the KDE approximated CCA space
+        - GetDist: Retreive the Distribution from KDE for a given X value
+        - SampleKDE: Sample models from the distribution and return them
+    '''
     def __init__(self,X,Y):
         tmp = X.shape
         self.nb_dim = tmp[1] # Getting the number of dimensions
@@ -118,6 +138,27 @@ class KDE:
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
     def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=[False, None]):
+        '''KERNELDENSITY computes the kernel density estimation for a given dataset.
+        
+        It can run without arguments (default) but several arguments are optional:
+            - dim (list): list of the dimensions to compute (default=None, meaning all)
+            - XTrue (list): list of true values for X (reduce the computation time 
+                            but decrease reusability) (default=None)
+            - NoiseError (list): list of parameters describing the error model (see
+                                 dedicated function) (default=None)
+            - RemoveOutlier (bool): remove the outliers (True) or not (False). An 
+                                    outlier is defined as a value greater than 3 
+                                    times the scaled median absolute value away from 
+                                    the median. (default=False)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided 
+        
+        If XTrue is provided, the distribution will be computed only for this particular
+        value. Otherwise, the full space (X,Y) will be computed.
+        '''
         if dim is None:
             dim = range(self.nb_dim) # We run all the dimensions
         elif np.max(dim) > self.nb_dim:
@@ -259,6 +300,14 @@ class KDE:
                     self.Dist[i] = Dist
     
     def ShowKDE(self,dim=None,Xvals=None):
+        '''SHOWKDE is a method that displays the KDE approximated CCA space.
+        By default, it shows 1 graph per dimension. Optional arguments are:
+            - dim (list): list of the specific dimensions to display
+            - Xvals (list): list of the true X values. Will be displayed in red.
+        
+        If the distributions are already computed for a given value of X, they 
+        will also be displayed.
+        '''
         if dim is None:
             dim = range(self.nb_dim)
         elif np.max(dim) > self.nb_dim:
@@ -291,10 +340,19 @@ class KDE:
         pyplot.show()
 
     def GetDist(self,Xvals=[0],dim=None,Noise=None):
-        # Adds a list Dist to self:
-        #   - Dist[0]=YVect
-        #   - Dist[1]=KDE (normalized)
-        #   - Dist[2]=CDF (corresponding to KDE, for sampler)
+        '''GETDIST is a method that extracts the distribution for a given X value from the KDE.
+
+        It takes as argument:
+            - Xvals (np.array): the true X values where to extract
+            - dim (list):  list of the specific dimensions to compute (optional, default is all)
+            - Noise (list): list of the impact of noise for the different dimensions (optional, 
+                            default is None)
+        
+        It produces the element Dist in the class with, for each dimension,:
+            - Dist[0]=YVect
+            - Dist[1]=KDE (normalized)
+            - Dist[2]=CDF (corresponding to KDE, for sampler)
+        '''
         # Handling exceptions:
         Xvals = Xvals[0]
         if dim is None:
@@ -348,7 +406,16 @@ class KDE:
                 Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
         self.Dist = Dist
     
-    def SampleKDE(self,nbSample=1000,dim=None):
+    def SampleKDE(self,nbSample:int=1000,dim=None):
+        '''SAMPLEKDE is a method that samples values from the KDE. 
+        
+        It takes as arguments:
+            - nbSamples (int): the number of samples to return (default=1000)
+            - dim (list): the dimensions to sample (defalut is all)
+
+        It returns a np.array with samples extracted from the distributions through 
+        the inverse sampler method (uniform distribution to any distribution).
+        '''
         if self.Dist[0] is None:
             raise Exception('Sample first the distribution!')
         if dim is None:
