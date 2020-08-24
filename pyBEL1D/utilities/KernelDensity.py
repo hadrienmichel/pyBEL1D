@@ -205,11 +205,11 @@ class KDE:
                 L = L[0] # Only keeping the length of the dataset
 
                 # Remove outliers:
-                if RemoveOutlier:
+                if RemoveOutlier: # Modification for graph only:
                     c = -1/(mt.sqrt(2)*erfcinv(3/2))
-                    isoutlierX = np.greater(dataset[:,0],3*c*np.median(np.abs(dataset[:,0]-np.median(dataset[:,0]))))
-                    isoutlierY = np.greater(dataset[:,1],3*c*np.median(np.abs(dataset[:,1]-np.median(dataset[:,1]))))
-                    isoutlier = np.logical_and(isoutlierX,isoutlierY)
+                    isoutlierX = np.greater(np.abs(dataset[:,0]),3*c*np.median(np.abs(dataset[:,0]-np.median(dataset[:,0]))))
+                    isoutlierY = np.greater(np.abs(dataset[:,1]),3*c*np.median(np.abs(dataset[:,1]-np.median(dataset[:,1]))))
+                    isoutlier = np.logical_or(isoutlierX,isoutlierY)
                     if any(isoutlier):
                         dataset = np.delete(dataset,np.where(isoutlier),0)
                         LNew = dataset.shape
@@ -337,7 +337,7 @@ class KDE:
                 pyplot.show(block=False)
             else:
                 raise Exception('No KDE field at dimension {}'.format(i))
-        pyplot.show()
+        pyplot.show(block=False)
 
     def GetDist(self,Xvals=[0],dim=None,Noise=None):
         '''GETDIST is a method that extracts the distribution for a given X value from the KDE.

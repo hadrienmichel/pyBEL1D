@@ -11,3 +11,7 @@ __pycache__/
 *.models
 *.postbel
 *.prebel
+*.npy
+!SEG2020_Bench.npy
+*.png
+Testings*

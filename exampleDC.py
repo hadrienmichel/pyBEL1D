@@ -155,10 +155,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         means = means[:idxIter+1,:]
         stds = stds[:idxIter+1,:]
         paramnames = PostbelTest.MODPARAM.paramNames["NamesS"] # For the legend of the futur graphs
-        pool.terminate
+        pool.terminate()
         return timings, means, stds, paramnames
 
-    IterTest = True
+    IterTest = False
 
     if IterTest:
         nbIter = 100
@@ -180,7 +180,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         pyplot.show()
 
     if not(IterTest):
-        test(nbModPre=1000)
+        test(nbModPre=10000)
 
     # nbModPre = 10000
     # print('Initializing . . .')

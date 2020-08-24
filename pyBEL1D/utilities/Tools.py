@@ -76,7 +76,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
     dim = POSTBEL.CCA.x_scores_.shape[1] # Number of dimensions for noise propagation
     dimD = POSTBEL.PCA["Data"].n_components_
     Noise = [0]*dim
-    if TypeMod is "sNMR": # Modeling Gaussian Noise (noise is an int)
+    if TypeMod == "sNMR": # Modeling Gaussian Noise (noise is an int)
         if not(isinstance(NoiseLevel,int)):
             print('Noise must be an integer for sNMR Noise propagation! Converted to default value of 10 nV!')
             NoiseLevel = 10 # in nV
@@ -92,20 +92,20 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):
            COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
-        Cf = np.squeeze(np.max(COV_diff,axis=0))
+        Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
-    elif TypeMod is "DC":
-        if not(isinstance(NoiseLevel,list)):
-            print('Noise must be in the form of a list! Converted to default value!')
-            NoiseLevel = [0.05, 100]
+    elif TypeMod == "DC":
+        # if not(isinstance(NoiseLevel,list)):
+        #     print('Noise must be in the form of a list! Converted to default value!')
+        #     NoiseLevel = [0.05, 100]
         # Propagating Noise:
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) 
         COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
-        dataNoisy = data + np.random.randn(nbTest,1)*np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
+        dataNoisy = data + np.multiply(np.repeat(np.random.randn(nbTest,1),data.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):
@@ -113,7 +113,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         Cf = np.squeeze(np.max(COV_diff,axis=0))
         Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
-    elif TypeMod is "General":
+    elif TypeMod == "General":
         if not(isinstance(NoiseLevel,list)):
             raise Exception('NoiseLevel is not a list!')
         if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
@@ -128,11 +128,11 @@ def PropagateNoise(POSTBEL,NoiseLevel=None):
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         for i in range(nbTest):
            COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
-        Cf = np.squeeze(np.max(COV_diff,axis=0))
+        Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     else:
-        raise RuntimeWarning('No noise propagation defined for the gievn method!')
+        raise RuntimeWarning('No noise propagation defined for the given method!')
     return Noise
 
 def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
@@ -166,7 +166,7 @@ def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
         # Check if the 1D distributions are similar
         nbVal += 1
         distance += stats.wasserstein_distance(SamplesANorm[:,i],SamplesBNorm[:,i]) # Return wasserstein distance between distributions --> "Small" = converged
-    distance /= nbVal
+    distance = np.max(distance)# /= nbVal
     if distance <= tol:
         diverge = False
     else:
