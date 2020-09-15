@@ -33,6 +33,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     FreqMIR = Dataset[:,0]
     Dataset = np.divide(Dataset[:,1],1000)# Phase velocity in km/s for the forward model
     ErrorModel = [0.075, 20]
+    ErrorFreq = np.asarray(np.divide(ErrorModel[0]*Dataset*1000 + np.divide(ErrorModel[1],FreqMIR),1000))# Errors in km/s for each Frequency
 
     # Attention, the maximum number of periods is 60 for the forward model! Keep the number of points low!
 
@@ -59,6 +60,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     pyplot.xscale('log')
     pyplot.yscale('log')
     pyplot.show()
+    ErrorModel = ErrorFreq # Error model for every frequency
 
     # Function to test the most direct approach:
     def test(nbModPre=1000):
@@ -113,6 +115,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         pool = pp.ProcessPool(mp.cpu_count())
         diverge = True
         distancePrevious = 1e10
+        MixingUpper = 0
+        MixingLower = 1
         for idxIter in range(nbIter):
             if idxIter == 0: # Initialization
                 TestCase = BEL1D.MODELSET().DC(prior=priorDC, Frequency=FreqMIR)
@@ -130,17 +134,20 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ModLastIter = PostbelTest.SAMPLES
                 # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
                 # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Simplified=True,nbMax=50*nbModPre,Parallelization=[True,pool])
+                MixingUpper += 1
+                MixingLower += 1
+                Mixing = MixingUpper/MixingLower
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Parallelization=[True,pool],Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
-                PostbelTest.run(Dataset,nbSamples=nbModPre,NoiseModel=None)
+                PostbelTest.run(Dataset,nbSamples=nbModPre,NoiseModel=ErrorModel)
                 means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
                 end = time.time()
                 timings[idxIter] = end-start
-            diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=1e-5)
+            diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-4)
             print('Wasserstein distance: {}'.format(distance))
-            if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<0.1):
+            if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<1):
                 # Convergence acheived if:
                 # 1) Distance below threshold
                 # 2) Distance does not vary significantly (less than 2.5%)
@@ -158,7 +165,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         pool.terminate()
         return timings, means, stds, paramnames
 
-    IterTest = False
+    IterTest = True
 
     if IterTest:
         nbIter = 100

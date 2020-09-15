@@ -36,7 +36,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     DatasetClean = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
     ErrorModelSynth = [0.075, 20]
     NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*DatasetClean*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
-    randVal = 0#np.random.randn(1)
+    randVal = np.random.randn(1)
     print("The dataset is shifted by {} times the NoiseLevel".format(randVal))
     Dataset = DatasetClean + randVal*NoiseEstimate
     # Define the prior:
@@ -70,19 +70,21 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     Periods = np.divide(1,Frequency)
     paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
     forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+    forwardFun = lambda model: arsalan(model[0],model[1],model[2],model[3],model[4])
     forward = {"Fun":forwardFun,"Axis":Periods}
     cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
     # Initialize the model parameters for BEL1D
+    nbModelsBase = 1000
     start = time.time()
     ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
     # Compute the operations prior to the knowledge of field data:
-    PrebelSynthetic = BEL1D.PREBEL(MODPARAM=ModelSynthetic, nbModels=1000)
+    PrebelSynthetic = BEL1D.PREBEL(MODPARAM=ModelSynthetic, nbModels=nbModelsBase)
     # pool = pp.ProcessPool(mp.cpu_count())
     PrebelSynthetic.run()#Parallelization=[True,pool])
     PreModsSynth=PrebelSynthetic.MODELS
     # Compute the operations posterior to the knowledge of the dataset:
     PostbelSynthetic = BEL1D.POSTBEL(PREBEL=PrebelSynthetic)
-    PostbelSynthetic.run(Dataset=Dataset,nbSamples=1000,NoiseModel=NoiseEstimate)
+    PostbelSynthetic.run(Dataset=Dataset,nbSamples=nbModelsBase,NoiseModel=NoiseEstimate)
     end = time.time()
     # Show the results:
     PostbelSynthetic.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
@@ -121,6 +123,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     timings = np.zeros((nbIter,))
     diverge = True
     distancePrevious = 1e10
+    MixingUpper = 0
+    MixingLower = 1
     for idxIter in range(nbIter):
         if idxIter == 0: # Initialization: already done (see 2 and 3)
             # PostbelTest.KDE.ShowKDE(Xvals=PostbelTest.CCA.transform(PostbelTest.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
@@ -131,20 +135,23 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             ModLastIter = PostbelSynthetic.SAMPLES
             PrebelLast = PrebelSynthetic
             PostbelLast = PostbelSynthetic
+            MixingUpper += 1
+            MixingLower += 1
+            Mixing = MixingUpper/MixingLower
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
             # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel=NoiseEstimate,Simplified=False)#,Parallelization=[False,None])
+            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel=NoiseEstimate,Simplified=True,nbMax=nbModelsBase,MixingRatio=Mixing)#,Parallelization=[False,None])
             # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
             print(idxIter+1)
             PostbelSynthetic = BEL1D.POSTBEL(PrebelSynthetic)
-            PostbelSynthetic.run(Dataset,nbSamples=1000,NoiseModel=NoiseEstimate)
+            PostbelSynthetic.run(Dataset,nbSamples=nbModelsBase,NoiseModel=NoiseEstimate)
             means[idxIter,:], stds[idxIter,:] = PostbelSynthetic.GetStats()
             end = time.time()
             timings[idxIter] = end-start
         # The distance is computed on the normalized distributions. Therefore, the tolerance is relative.
         diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelSynthetic.SAMPLES, tol=5e-4)
         print('Wasserstein distance: {}'.format(distance))
-        if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<1):
+        if not(diverge):# or (abs((distancePrevious-distance)/distancePrevious)*100<0.5):
             # Convergence acheived if:
             # 1) Distance below threshold
             # 2) Distance does not vary significantly (less than 2.5%)
@@ -194,19 +201,15 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     print('Total computation time: {} seconds'.format(np.sum(timings)))
 
     # Compare the results to McMC results:
-    McMC = np.load("Test_Jr_0_1_SEQ_10_M10000.npy")
-    DREAMsamples = list()
-    for i in range(McMC.shape[-1]):
-        DREAMsamples.append(McMC[:,:,i])
-    DREAM = np.vstack(DREAMsamples)
+    McMC = np.load("MASW_Bench.npy")
+    DREAM=McMC[:,:5]
     PostbelSynthetic.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)
 
     pyplot.show(block=False)
-    figs = [pyplot.figure(n) for n in pyplot.get_fignums()]
-    for fig in figs:
-        fig.savefig('Figure{}'.format(fig.number), format='png')
-    # pool.terminate()
-
+    # figs = [pyplot.figure(n) for n in pyplot.get_fignums()]
+    # for fig in figs:
+    #     fig.savefig('Figure{}.png'.format(fig.number), format='png')
+    
     pyplot.show()
 
     MIRANDOLA = False

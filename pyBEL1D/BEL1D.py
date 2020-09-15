@@ -532,16 +532,27 @@ class PREBEL:
                     TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
                 
             maxDepth = np.max(Param[0][:,-1])*1.25
-            axes = fig.subplots(1,nbParamUnique) # One graph per parameter
-            for j in range(nbParamUnique):
+            if nbParamUnique > 1:
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
+                for j in range(nbParamUnique):
+                    for i in sortIndex:
+                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    if TrueModel is not None:
+                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                    axes[j].invert_yaxis()
+                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+            else:
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 for i in sortIndex:
-                    axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
                 if TrueModel is not None:
-                    axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
-                axes[j].invert_yaxis()
-                axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
-                axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                    axes.step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                axes.invert_yaxis()
+                axes.set_ylim(bottom=maxDepth,top=0.0)
+                axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
         for ax in axes.flat:
             ax.label_outer()
 
