@@ -1,6 +1,6 @@
 # Importing custom libraries
-from utilities import Tools
-from utilities.KernelDensity import KDE
+from .utilities import Tools
+from .utilities.KernelDensity import KDE
 #Importing common libraries
 import numpy as np 
 import math as mt 
@@ -9,13 +9,23 @@ from matplotlib import pyplot
 import sklearn
 from sklearn import decomposition, cross_decomposition
 from scipy import stats
-import multiprocessing as mp 
+from pathos import multiprocessing as mp # No issues with pickeling with this
+from pathos import pools as pp
+from functools import partial
+import time
 
 def round_to_5(x,n=1): 
     # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
     tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
     return tmp
 
+# Parralelization fucntions:
+def ForwardParallelFun(Model, function, nbVal):
+    try:
+        ForwardComputed = function(Model)
+    except:
+        ForwardComputed = [None]*nbVal
+    return ForwardComputed
 
 # TODO/DONE:
 #   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
@@ -24,14 +34,45 @@ def round_to_5(x,n=1):
 #   - (Done on 18/05/2020) Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
 #   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
 #   - (Done on 13/05/2020) Add support for iterations
+#   - Parallelization of the computations:
+#       - KDE (one core/thread per dimension) -> Most probable gain
+#       - (Done on 14/07/2020) Forward modelling (all cores/threads operating) -> Needed for more complex forward models
+#       - (Not possible to parallelize (same seed for different workers))Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
 #   - Add iteration convergence critereon!
 #   - Lower the memory needs (how? not urgent)
 #   - Comment the codes!
 #   - Check KDE behaviour whit outliers (too long computations and useless?)
 
 class MODELSET:
+    '''MODELSET is an object class that can be initialized using:
+        - the dedicated class methods (DC and SNMR) - see dedicated help
+        - the __init__ method
+    
+    To initialize with the init method, the different arguments are:
+        - prior (list of scipy stats objects): a list describing the statistical
+                                                distributions for the prior model space
+        - cond (callable lambda function): a function that returns True or False if the
+                                            model given in argument respects (True) the 
+                                            conditions or not (False)
+        - method (string): name of the method (e.g. "sNMR")
+        - forwardFun (dictionary): a dictionary with two entries
+                o "Fun" (callable lambda function): the forward model function for a given 
+                                                    model
+                o "Axis" (np.array): the X axis along which the computation is done
+        - paramNames (dictionary): a dictionary with multiple entries
+                o "NamesFU" (list): Full names of all the parameters with units
+                o "NamesSU" (list): Short names of all the parameters with units
+                o "NamesS" (list): Short names of all the parameters without units
+                o "NamesGlobal" (list): Full names of the global parameters (not layered)
+                o "NamesGlobalS" (list): Short names of the global parameters (not layered)
+                o "DataUnits" (string): Units for the dataset,
+                o "DataName" (string): Name of the Y-axis of the dataset (result from the 
+                                        forward model)
+                o "DataAxis" (string): Name of the X-axis of the dataset
+        - nbLayer (int): the number of layers for the model (None if not layered)
+    '''
 
-    def __init__(self,prior=None,cond=None,method=None,forwardFun=None,paramNames=None,nbLayer=None):
+    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
             self.prior = []
             self.method = []
@@ -107,7 +148,7 @@ class MODELSET:
                     NamesShort[ident] = NShort[j] + str(i+1) + "}"
                     ident += 1
         method = "sNMR"
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]"}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]","DataName":"Amplitude [V]","DataAxis":"Time/pulses [/]"}# The representation is automated -> no time displayed since pulses are agregated
         KFile = sNMR.MRS()
         KFile.loadKernel(Kernel)
         ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
@@ -158,8 +199,8 @@ class MODELSET:
         NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
         Mins = np.zeros(((nLayer*nParam)-1,))
         Maxs = np.zeros(((nLayer*nParam)-1,))
-        Units = [" [km]", " [km/s]", " [km/s]", " [T/m^3]"]
-        NFull = ["Thickness ","s-Wave velocity ","p-Wave velocity ", "Density "]
+        Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]", "\\ [T/m^3]"]
+        NFull = ["Thickness\\ ","s-Wave\\ velocity\\ ","p-Wave\\ velocity\\ ", "Density\\ "]
         NShort = ["e_{", "Vs_{", "Vp_{", "\\rho_{"]
         ident = 0
         for j in range(nParam):
@@ -174,7 +215,7 @@ class MODELSET:
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [km]", "Vs [km/s]", "Vp [km/s]", "\\rho [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase velocity [km/s]","DataAxis":"Periods [s]"}
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
         forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         forward = {"Fun":forwardFun,"Axis":Periods}
         def PoissonRatio(model):
@@ -191,13 +232,14 @@ class PREBEL:
     """Object that is used to store the PREBEL elements:
     
     For a given model set (see MODELSET class), the PREBEL class
-    enables all the computations taht takes place previous to any 
+    enables all the computations that takes place previous to any 
     field data knowledge. It takes as argument:
-        - method (str): the name of the geophysical method
-        - prior (list of stats): the prior description
-        - nbModels (int): the number of models to sample in the prior
+        - MODPARAM (MODELSET class object): a previously defined
+                                            MODLESET class object
+        - nbModels (int): the number of models to sample from the
+                          prior (dafault = 1000)
     """
-    def __init__(self,MODPARAM:MODELSET,nbModels=1000):
+    def __init__(self,MODPARAM:MODELSET,nbModels:int=1000):
         # PRIOR: a list of scipy.stats distributions describing 
         # the prior model space for all the parameters
         self.PRIOR = MODPARAM.prior
@@ -229,10 +271,18 @@ class PREBEL:
         # KDE: a class pobject KDE (custom)
         self.KDE = []
 
-    def run(self):
+    def run(self, RemoveOutlier:bool=False, Parallelization=[False, None]):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
+        The optional argument RemoveOutlier (bool) is given to simplifie the KDE
+        computation (default=False)
+        If the argument Parallelization (list) is given it can either be:
+            - [False, ?]: no parallel runs
+            - [True, None]: parallel runs without pool provided
+            - [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                            provided
+        The default is no parallel runs.
         """
 
         # 1) Sampling (if not done already):
@@ -253,18 +303,45 @@ class PREBEL:
                 if indexCurr > self.nbModels:
                     raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels,len(tmp)))
-        notComputed = []
-        for i in range(self.nbModels):
-            # print(i)
-            try:
-                self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
-            except:
-                self.FORWARD[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        self.MODELS = np.delete(self.MODELS,notComputed,0)
-        self.FORWARD = np.delete(self.FORWARD,notComputed,0)
-        newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+        timeBegin = time.time()
+        if Parallelization[0]:
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [self.MODELS[i,:] for i in range(self.nbModels)]
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                Parallelization[1] = pool
+                terminatePool = True
+            outputs = pool.map(functionParallel,inputs)
+            # pool.close()
+            # pool.join()
+            self.FORWARD = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(self.nbModels) if self.FORWARD[i,0] is None]
+            self.MODELS = np.array(np.delete(self.MODELS,notComputed,0),dtype=np.float64)
+            self.FORWARD = np.array(np.delete(self.FORWARD,notComputed,0),dtype=np.float64)
+            newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+            timeEnd = time.time()
+            print('The Parallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
+        else:
+            notComputed = []
+            for i in range(self.nbModels):
+                # print(i)
+                try:
+                    self.FORWARD[i,:] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i,:])
+                except:
+                    self.FORWARD[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            self.MODELS = np.delete(self.MODELS,notComputed,0)
+            self.FORWARD = np.delete(self.FORWARD,notComputed,0)
+            newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
+            timeEnd = time.time()
+            print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
@@ -290,10 +367,33 @@ class PREBEL:
         self.CCA = cca_transform
         # 5) KDE:
         self.KDE = KDE(d_c,m_c)
-        self.KDE.KernelDensity()
+        self.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
+        if Parallelization[0] and terminatePool:
+            pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified=False,nbMax=100000):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified:bool=False,RemoveOutlier:bool=False,nbMax:int=100000,MixingRatio:float=None,Parallelization:list=[False,None]):
+        ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
+
+        It takes as arguments:
+            - PREBEL (PREBEL): The previous PREBEL object
+            - POSTBEL (POSTBEL): the current POSTBEL object
+        And optional arguments are:
+            - Dataset (np.array): the field dataset
+            - NoiseModel (list): the list defining the noise model (see dedicated functions)
+            - Simplified (bool): ramdom sampling of a number of models from componded prior or not
+                                 (default=False)
+            - RemoveOutlier (bool): remove ourliers for the KDE computation (default=False)
+            - nbMax (int): the number of random samples to keep if Simplified=True (default=100000)
+            - MixingRatio (float): mixing proportion for the prior and posterior (keep constant 
+                                   accross iterations, default = 1.0)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided 
+
+        '''
         # if (Dataset is None) and (NoiseModel is not None):
         #     NoiseModel = None 
         # 1) Initialize the Prebel class object
@@ -312,26 +412,57 @@ class PREBEL:
                 indexCurr += 1
                 if indexCurr > PrebelNew.nbModels:
                     raise Exception('The forward modelling failed!')
-        ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
-        notComputed = []
-        for i in range(np.size(ModelsKeep,axis=0)):
-            # print(i)
-            try:
-                ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
-            except:
-                ForwardKeep[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-        ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-        newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+        
+        if Parallelization[0]:
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                Parallelization[1] = pool
+                terminatePool = True
+            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            outputs = pool.map(functionParallel,inputs)
+            # pool.close()
+            # pool.join()
+            ForwardKeep = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
+            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+        else:
+            ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
+            notComputed = []
+            for i in range(np.size(ModelsKeep,axis=0)):
+                # print(i)
+                try:
+                    ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
+                except:
+                    ForwardKeep[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
         PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         if Simplified and (PrebelNew.nbModels>nbMax):
             import random
-            idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
+            # Using the mixing ratio to ensure a correct representation of all the models in the prior
+            if MixingRatio is not None:
+                # We need to keep half of the models from the first half of the prior and half from the second half
+                idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), int(np.ceil(MixingRatio*nbMax))))
+                idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), nbMax-int(np.ceil(MixingRatio*nbMax)))) + int(np.ceil(PrebelNew.nbModels/2))
+                idxKeep = np.concatenate((idxKeep1,idxKeep2))
+            else:
+                idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
             PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
             PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
             PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
@@ -369,12 +500,18 @@ class PREBEL:
         # 5) KDE:
         PrebelNew.KDE = KDE(d_c,m_c)
         if Dataset is None:
-            PrebelNew.KDE.KernelDensity()
+            PrebelNew.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
         else:
-            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise)
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
+        if Parallelization[0] and terminatePool:
+            pool.terminate()
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):
+        '''SHOWPREMODELS is a function that displays the models sampled from the prior model space.
+
+        The optional argument TrueModel (np.array) is an array containing the benchmark model.
+        '''
         from matplotlib import colors
         nbParam = self.MODELS.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -395,30 +532,44 @@ class PREBEL:
                     TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
                 
             maxDepth = np.max(Param[0][:,-1])*1.25
-            axes = fig.subplots(1,nbParamUnique) # One graph per parameter
-            for j in range(nbParamUnique):
+            if nbParamUnique > 1:
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
+                for j in range(nbParamUnique):
+                    for i in sortIndex:
+                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    if TrueModel is not None:
+                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                    axes[j].invert_yaxis()
+                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+            else:
+                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 for i in sortIndex:
-                    axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                    axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
                 if TrueModel is not None:
-                    axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
-                axes[j].invert_yaxis()
-                axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
-                axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
+                    axes.step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                axes.invert_yaxis()
+                axes.set_ylim(bottom=maxDepth,top=0.0)
+                axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
         for ax in axes.flat:
             ax.label_outer()
 
-        fig.suptitle("Prior model visualtization",FontSize=16)
+        fig.suptitle("Prior model visualtization",fontsize=16)
         pyplot.show()
 
     def ShowPriorDataset(self):
+        '''SHOWPRIORDATASET is a function that displays the ensemble of datasets modelled from
+        sampled prior models.
+        '''
         sortIndex = np.arange(self.nbModels)
         fig = pyplot.figure()
         ax = fig.add_subplot(1, 1, 1)
         for j in sortIndex:
             ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:]),color='gray')
-            ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
-            ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+            ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
+            ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
         pyplot.show()
         
 class POSTBEL:
@@ -442,7 +593,23 @@ class POSTBEL:
         self.SAMPLES = []
         self.SAMPLESDATA = []
 
-    def run(self,Dataset,nbSamples=1000,Graphs=False,NoiseModel=None):
+    def run(self,Dataset,nbSamples:int=1000,Graphs:bool=False,NoiseModel:list=None):
+        '''RUN is a method that runs POSTBEL operations for a given dataset.
+
+        It takes as argument:
+            - Dataset (np.array): the field dataset
+        
+        Optional arguments are:
+            - nbSamples (int): the number of posterior models to sample
+                               (defalut=1000)
+            - Graphs (bool): show KDE graphs (True) or not (False)
+                             (default=False)
+            - NoiseModel (list): the list defining the noise model 
+                                 (see dedicated functions)
+                                 (default=None)
+
+
+        '''
         self.nbSamples = nbSamples
         # Transform dataset to CCA space:
         Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
@@ -500,7 +667,17 @@ class POSTBEL:
                     achieved = True
             self.SAMPLES = Samples
 
-    def DataPost(self):
+    def DataPost(self, Parallelization=[False,None]):
+        '''DATAPOST is a function that computes the forward model for all the 
+        models sampled from the posterior.
+
+        The optional argument Parallelization (list) can take as values:
+            - [False, _]: no parallel runs (default)
+            - [True, None]: parallel runs without pool provided
+            - [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                            provided 
+        '''
+        # TODO: add option to parallelize in calling functions
         if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
             print('Forward modelling already conducted!')
             return self.SAMPLESDATA
@@ -511,24 +688,54 @@ class POSTBEL:
                 break
             except:
                 indexCurr += 1
+                if indexCurr > self.nbModels:
+                    raise Exception('The forward modelling failed!')
         self.SAMPLESDATA = np.zeros((self.nbSamples,len(tmp)))
-        notComputed = []
-        for i in range(self.nbSamples):
-            # print(i)
-            try:
-                self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
-            except:
-                self.SAMPLESDATA[i,:] = [None]*len(tmp)
-                notComputed.append(i)
-        # Getting the uncomputed models and removing them:
-        self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
-        self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
-        newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        if Parallelization[0]:
+            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #   - Model: a numpy array containing the model to compute
+            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            inputs = [self.SAMPLES[i,:] for i in range(self.nbSamples)]
+            if Parallelization[1] is not None:
+                pool = Parallelization[1]
+                terminatePool = False
+                # pool.restart()
+            else:
+                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                terminatePool = True
+            outputs = pool.map(functionParallel,inputs)
+            # pool.close()
+            # pool.join()
+            self.SAMPLESDATA = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(self.nbSamples) if self.SAMPLESDATA[i,0] is None]
+            self.SAMPLES = np.array(np.delete(self.SAMPLES,notComputed,0),dtype=np.float64)
+            self.SAMPLESDATA = np.array(np.delete(self.SAMPLESDATA,notComputed,0),dtype=np.float64)
+            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            if terminatePool:
+                pool.terminate()
+        else:
+            notComputed = []
+            for i in range(self.nbSamples):
+                # print(i)
+                try:
+                    self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
+                except:
+                    self.SAMPLESDATA[i,:] = [None]*len(tmp)
+                    notComputed.append(i)
+            # Getting the uncomputed models and removing them:
+            self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
+            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
+            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
         print('{} models remaining after forward modelling!'.format(newSamplesNb))
         self.nbSamples = newSamplesNb
         return self.SAMPLESDATA
 
     def ShowPost(self,TrueModel=None):
+        '''SHOWPOST shows the posterior parameter distributions (uncorrelated).
+
+        The optional argument TrueModel (np.array) is an array containing the benchmark model.
+        '''
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
             TrueModel = None
@@ -540,9 +747,15 @@ class POSTBEL:
             if TrueModel is not None:
                 ax.plot([TrueModel[i],TrueModel[i]],np.asarray(ax.get_ylim()),'r')
             pyplot.show(block=False)
-        pyplot.show()
+        pyplot.show(block=False)
     
     def ShowPostCorr(self,TrueModel=None,OtherMethod=None):
+        '''SHOWPOSTCORR shows the posterior parameter distributions (correlated).
+
+        The optional arguments are:
+            - TrueModel (np.array): an array containing the benchmark model
+            - OtherMethod (np.array): an array containing an ensemble of models
+        '''
         # Adding the graph with correlations: 
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
@@ -558,8 +771,8 @@ class POSTBEL:
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
                     if OtherMethod is not None:
-                        axs[i,j].hist(OtherMethod[:,j],color='y')
-                    axs[i,j].hist(self.SAMPLES[:,j],color='b') # Plot the histogram for the given variable
+                        axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
+                    axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
                     if TrueModel is not None:
                         axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
                     if nbParam > 8:
@@ -612,9 +825,22 @@ class POSTBEL:
         fig.suptitle("Posterior model space visualtization")
         for ax in axs.flat:
             ax.label_outer()
-        pyplot.show()
+        pyplot.show(block=False)
     
-    def ShowPostModels(self,TrueModel=None,RMSE=False, Best=None):
+    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None]):
+        '''SHOWPOSTMODELS shows the sampled posterior models.
+
+        The optional argument are:
+            - TrueModel (np.array): an array containing the benchmark model.
+            - RMSE (bool):  show the RMSE (True) or not (False)
+                            (default=False)
+            - Best (int): only show the X best models (X is the argument)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided
+        '''
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
         nbLayer = self.MODPARAM.nbLayer
@@ -622,7 +848,7 @@ class POSTBEL:
             TrueModel = None
         if RMSE and len(self.SAMPLESDATA)==0:
             print('Computing the forward model for the posterior!')
-            self.DataPost()
+            self.DataPost(Parallelization=Parallelization)
         if RMSE:
             TrueData = self.DATA['True']
             RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
@@ -632,6 +858,7 @@ class POSTBEL:
         else:
             sortIndex = np.arange(self.nbSamples)
         if Best is not None:
+            Best = int(Best)
             sortIndex = sortIndex[-Best:]
         if nbLayer is not None:# If the model can be displayed as layers
             nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
@@ -650,28 +877,51 @@ class POSTBEL:
             if RMSE:
                 colormap = matplotlib.cm.get_cmap('jet')
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
-                for j in range(nbParamUnique):
+                if nbParamUnique > 1:
+                    for j in range(nbParamUnique):
+                        for i in sortIndex:
+                            axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                        if TrueModel is not None:
+                            axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
+                        axes[j].invert_yaxis()
+                        axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                        axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                        axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                else:
+                    j = 0
                     for i in sortIndex:
-                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                        axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
                     if TrueModel is not None:
-                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
-                    axes[j].invert_yaxis()
-                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
-                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
+                        axes.step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
+                    axes.invert_yaxis()
+                    axes.set_ylim(bottom=maxDepth,top=0.0)
+                    axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                    axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
             else:
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
-                for j in range(nbParamUnique):
+                if nbParamUnique > 1:
+                    for j in range(nbParamUnique):
+                        for i in sortIndex:
+                            axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                        if TrueModel is not None:
+                            axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                        axes[j].invert_yaxis()
+                        axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                        axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                        axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                else:
+                    j = 0 # Unique parameter
                     for i in sortIndex:
-                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
+                        axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
                     if TrueModel is not None:
-                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
-                    axes[j].invert_yaxis()
-                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),FontSize=14)
-                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),FontSize=14)
-        for ax in axes.flat:
-            ax.label_outer()
+                        axes.step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='k')
+                    axes.invert_yaxis()
+                    axes.set_ylim(bottom=maxDepth,top=0.0)
+                    axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                    axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+        if nbParamUnique > 1:
+            for ax in axes.flat:
+                ax.label_outer()
         
         if RMSE:
             fig.subplots_adjust(bottom=0.25)
@@ -683,22 +933,36 @@ class POSTBEL:
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
             data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
-            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),FontSize=12)
+            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
             ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
 
 
-        fig.suptitle("Posterior model visualtization",FontSize=16)
-        pyplot.show()
+        fig.suptitle("Posterior model visualtization",fontsize=16)
+        pyplot.show(block=False)
     
-    def ShowDataset(self,RMSE=False,Prior=False,Best=None):
+    def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None]):
+        '''SHOWPOSTMODELS shows the sampled posterior models.
+
+        The optional argument are:
+            - RMSE (bool):  show the RMSE (True) or not (False)
+                            (default=False)
+            - Prior (bool): show the sampled prior datasets below (True) or not (False)
+                            (default=False)
+            - Best (int): only show the X best models (X is the argument)
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                    provided
+        '''
         from matplotlib import colors
         # Model the dataset (if not already done)
         if len(self.SAMPLESDATA)==0:
             print('Computing the forward model for the posterior!')
-            self.DataPost()
+            self.DataPost(Parallelization=Parallelization)
         if RMSE:
             TrueData = self.DATA['True']
             RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
@@ -708,26 +972,27 @@ class POSTBEL:
         else:
             sortIndex = np.arange(self.nbSamples)
         if Best is not None:
+            Best = int(Best)
             sortIndex = sortIndex[-Best:]# Select then best models
         fig = pyplot.figure()
         ax = fig.add_subplot(1, 1, 1)
         if Prior:
             for j in range(self.nbModels):
-                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:]),color='gray')
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
         if RMSE:
             colormap = matplotlib.cm.get_cmap('jet')
             for j in sortIndex:
-                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:]),color=colormap(quantiles[j]))
-                ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
-                ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:len(self.MODPARAM.forwardFun["Axis"])]),color=colormap(quantiles[j]))
+            ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
+            ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
         else:
             for j in sortIndex:
-                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:]),color='gray')
-                ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),FontSize=14)
-                ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),FontSize=14)
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
+            ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
+            ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
         if RMSE:
-            fig.subplots_adjust(bottom=0.25)
-            ax_colorbar = fig.add_axes([0.10, 0.1, 0.80, 0.05])
+            fig.subplots_adjust(bottom=0.30)
+            ax_colorbar = fig.add_axes([0.10, 0.15, 0.80, 0.05])
             nb_inter = 1000
             color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
             cmap_scale = colors.ListedColormap(color_for_scale)
@@ -735,15 +1000,97 @@ class POSTBEL:
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
             data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
-            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),FontSize=12)
+            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
-            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
-        pyplot.show()
+            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=15,ha='center')
+        pyplot.show(block=False)
 
     def GetStats(self):
+        '''GETSTATS is a method that returns the means and standard deviations of the 
+        parameters distributions.
+        '''
         means = np.mean(self.SAMPLES,axis=0)
         stds = np.std(self.SAMPLES,axis=0)
         return means, stds
     
+# Saving/loading operations:
+def SavePREBEL(CurrentPrebel:PREBEL, Filename='PREBEL_Saved'):
+    '''SavePREBEL is a function that saves the current prebel class object.
+
+    It requieres as input:
+        - CurrentPrebel: a PREBEL class object
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.prebel" in the current directory
+     (or the directory stated in the Filename input)
+    '''
+    import dill
+    file_write = open(Filename+'.prebel','wb')
+    dill.dump(CurrentPrebel,file_write)
+    file_write.close()
+
+def LoadPREBEL(Filename='PREBEL_Saved.prebel'):
+    '''LoadPREBEL is a function that loads the prebel class object stored in Filename.
+
+    It requieres as input:
+        - FileName: a string with the name of the saved file
+
+    The function returns the loaded PREBEL object.
+    '''
+    import dill
+    file_read = open(Filename,'rb')
+    PREBEL = dill.load(file_read)
+    file_read.close()
+    return PREBEL
+
+def SavePOSTBEL(CurrentPostbel:POSTBEL, Filename='PREBEL_Saved'):
+    '''SavePOSTBEL is a function that saves the current postbel class object.
+
+    It requieres as input:
+        - CurrentPostbel: a POSTBEL class object
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.postbel" in the current directory
+     (or the directory stated in the Filename input)
+    '''
+    import dill
+    file_write = open(Filename+'.postbel','wb')
+    dill.dump(CurrentPostbel,file_write)
+    file_write.close()
+
+def LoadPOSTBEL(Filename='POSTBEL_Saved.prebel'):
+    '''LoadPOSTBEL is a function that loads the postbel class object stored in Filename.
+
+    It requieres as input:
+        - FileName: a string with the name of the saved file
+
+    The function returns the loaded POSTBEL object.
+    '''
+    import dill
+    file_read = open(Filename,'rb')
+    POSTBEL = dill.load(file_read)
+    file_read.close()
+    return POSTBEL
+
+def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
+    '''SaveSamples is a function that saves the sampled models from a POSTBEL class object.
+
+    It requieres as input:
+        - CurrentPostbel: a POSTBEL class object
+        - Data: a boolean (False=not saved, True=saved)
+        - FileName: a string with the name of the file to save
+
+    The function will create de file "Filename.models" (and optionaly "Filename.datas") 
+    in the current directory (or the directory stated in the Filename input). The files 
+    are classical ascii files
+    '''
+    if len(CurrentPostbel.SAMPLES)==0:
+        raise EnvironmentError('No samples in current POSTBEL object!')
+    if Data:
+        if len(CurrentPostbel.SAMPLESDATA)==0:
+            print('Computing the forward model for the posterior!')
+            CurrentPostbel.DataPost() # By default not parallelized
+        np.savetxt(Filename+'.datas',CurrentPostbel.SAMPLESDATA,delimiter='\t')
+    np.savetxt(Filename+'.models',CurrentPostbel.SAMPLES,delimiter='\t')

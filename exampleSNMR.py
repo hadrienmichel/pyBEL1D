@@ -1,10 +1,10 @@
 # This file is an example on how to use the BEL1D codes using a simple 2-layer SNMR experiment (with noise)
-import BEL1D
+from pyBEL1D import BEL1D
 import cProfile # For debugging and timings measurements
 import time # For simple timing measurements
 import numpy as np # For the initialization of the parameters
 from matplotlib import pyplot # For graphics on post-processing
-from utilities import Tools # For further post-processing
+from pyBEL1D.utilities import Tools # For further post-processing
 
 # Parameters for the tested model
 modelTrue = np.asarray([5.0, 0.05, 0.25, 0.1, 0.2])
@@ -54,6 +54,8 @@ def testIter(nbIter=5):
     timings = np.zeros((nbIter,))
     start = time.time()
     diverge = True
+    MixingUpper = 0
+    MixingLower = 1
     for idxIter in range(nbIter):
         if idxIter == 0: # Initialization
             TestCase = BEL1D.MODELSET().SNMR(prior=priorSNMR, Kernel=Kernel, Timing = Timings)
@@ -73,15 +75,18 @@ def testIter(nbIter=5):
             ModLastIter = PostbelTest.SAMPLES
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
             # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=10,Simplified=True,nbMax=10*nbModPre)
+            MixingUpper += 1
+            MixingLower += 1
+            Mixing = MixingUpper/MixingLower
+            PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=10,Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
             # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
             print(idxIter+1)
             PostbelTest = BEL1D.POSTBEL(PrebelIter)
-            PostbelTest.run(Dataset,nbSamples=nbModPre,NoiseModel=None)
+            PostbelTest.run(Dataset,nbSamples=nbModPre,NoiseModel=10)
             means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
             end = time.time()
             timings[idxIter] = end-start
-        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=1e-5)
+        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-4)
         print('Wasserstein distance: {}'.format(distance))
         if not(diverge):
             print('Model has converged at iter {}!'.format(idxIter+1))
@@ -98,7 +103,7 @@ def testIter(nbIter=5):
 IterTest = True
 
 if IterTest:
-    nbIter = 5
+    nbIter = 100
     timings, means, stds, names = testIter(nbIter=nbIter)
     pyplot.plot(np.arange(len(timings)),timings)
     pyplot.ylabel('Computation Time [sec]')
