@@ -145,7 +145,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
                 end = time.time()
                 timings[idxIter] = end-start
-            diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-4)
+            diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=1e-4)
             print('Wasserstein distance: {}'.format(distance))
             if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<1):
                 # Convergence acheived if:
