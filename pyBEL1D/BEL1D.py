@@ -458,8 +458,22 @@ class PREBEL:
             # Using the mixing ratio to ensure a correct representation of all the models in the prior
             if MixingRatio is not None:
                 # We need to keep half of the models from the first half of the prior and half from the second half
-                idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), int(np.ceil(MixingRatio*nbMax))))
-                idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), nbMax-int(np.ceil(MixingRatio*nbMax)))) + int(np.ceil(PrebelNew.nbModels/2))
+                samp1 = np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
+                samp2 = nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
+                print('Sampling 1: {} \nSampling 2: {}'.format(samp1,samp2))
+                if samp2 > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
+                    samp2 = PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))
+                    samp1 = nbMax - samp2
+                    if samp1 > int(np.ceil(PrebelNew.nbModels/2)):
+                        raise Exception('Impossible to use this proportion with current sample set!')
+                # print('Nb To Sample 1 : {} out of {}'.format(np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),int(np.ceil(PrebelNew.nbModels/2))))
+                # if np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > int(np.ceil(PrebelNew.nbModels/2)):
+                #     raise Exception('Error')
+                idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), samp1))#np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])))
+                # print('Nb To Sample 2 : {} out of {}'.format(nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))))
+                # if nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
+                #     raise Exception('Error')
+                idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), samp2))  + int(np.ceil(PrebelNew.nbModels/2))#nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]))) + int(np.ceil(PrebelNew.nbModels/2))
                 idxKeep = np.concatenate((idxKeep1,idxKeep2))
             else:
                 idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
@@ -494,7 +508,7 @@ class PREBEL:
             d_obs_h = PrebelNew.PCA['Data'].transform(Dataset)
             d_obs_c = PrebelNew.CCA.transform(d_obs_h)
             if NoiseModel is not None:
-                Noise = Tools.PropagateNoise(PrebelNew,NoiseModel)
+                Noise = np.sqrt(Tools.PropagateNoise(PrebelNew,NoiseModel,DatasetIn=Dataset))
             else:
                 Noise = None
         # 5) KDE:
@@ -544,6 +558,7 @@ class PREBEL:
                     axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
                     axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
             else:
+                j = 0
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 for i in sortIndex:
                     axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color='gray')
@@ -556,7 +571,7 @@ class PREBEL:
         for ax in axes.flat:
             ax.label_outer()
 
-        fig.suptitle("Prior model visualtization",fontsize=16)
+        fig.suptitle("Prior model visualization",fontsize=16)
         pyplot.show()
 
     def ShowPriorDataset(self):
@@ -618,7 +633,7 @@ class POSTBEL:
         self.DATA = {'True':Dataset,'PCA':d_obs_h,'CCA':d_obs_c}
         # Propagate Noise:
         if NoiseModel is not None:
-            Noise = Tools.PropagateNoise(self,NoiseModel)
+            Noise = np.sqrt(Tools.PropagateNoise(self,NoiseModel))
         else:
             Noise = None
         # Obtain corresponding distribution (KDE)
@@ -822,7 +837,7 @@ class POSTBEL:
                     axs[i,j].xaxis.set_label_position("top")
                     axs[i,j].xaxis.tick_top()
                     axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
-        fig.suptitle("Posterior model space visualtization")
+        fig.suptitle("Posterior model space visualization")
         for ax in axs.flat:
             ax.label_outer()
         pyplot.show(block=False)
@@ -940,7 +955,7 @@ class POSTBEL:
             ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
 
 
-        fig.suptitle("Posterior model visualtization",fontsize=16)
+        fig.suptitle("Posterior model visualization",fontsize=16)
         pyplot.show(block=False)
     
     def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None]):

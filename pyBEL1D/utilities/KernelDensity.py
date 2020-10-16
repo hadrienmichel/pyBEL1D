@@ -84,7 +84,7 @@ def ParallelKernel(inputs):
         for y in Yaxis:
             # p = path.Path(circle(x,y,band))
             probaLarge = 4
-            impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+            impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*bandX), np.less(dataset[:,0],x+probaLarge*bandX)), np.logical_and(np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
             if np.sum(impacts)>0:
                 idxImpacts = np.where(impacts)
                 idxImpacts = idxImpacts[0]
@@ -279,7 +279,7 @@ class KDE:
                     for y in self.Yaxis[i]:
                         # p = path.Path(circle(x,y,band))
                         probaLarge = 4
-                        impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*band), np.less(dataset[:,0],x+probaLarge*band)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
+                        impacts = np.logical_and(np.logical_and(np.greater(dataset[:,0],x-probaLarge*bandX), np.less(dataset[:,0],x+probaLarge*bandX)), np.logical_and( np.greater(dataset[:,1],y-probaLarge*band), np.less(dataset[:,1],y+probaLarge*band)))#p.contains_points(dataset)
                         if np.sum(impacts)>0:
                             idxImpacts = np.where(impacts)
                             idxImpacts = idxImpacts[0]
@@ -372,7 +372,7 @@ class KDE:
                     raise Exception('The dataset seems to be outside the training set (dim {}).'.format(i))
             else:
                 if Xvals[i] < np.min(self.Xaxis[i])-3*Noise[i] or Xvals[i] > np.max(self.Xaxis[i])+3*Noise[i]:
-                    raise Exception('The dataset seems to be outside the training set (dim {}), event with noise!'.format(i))
+                    raise Exception('The dataset seems to be outside the training set (dim {}), even with noise!'.format(i))
         if Noise is None:
             for i in dim:
                 idx = np.searchsorted(self.Xaxis[i],Xvals[i],side='left')# Find the first index that is greater than the value
@@ -388,6 +388,7 @@ class KDE:
                     CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
                     Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
         else:
+            print(Noise)
             for i in dim:
                 KDE_tmp = np.zeros_like(self.KDE[i][1,:])
                 samples = 100
@@ -395,7 +396,9 @@ class KDE:
                 r = distNoise.rvs(size=samples)
                 for j in range(samples):
                     idx = np.searchsorted(self.Xaxis[i],r[j],side='left')# Find the first index that is greater than the value
-                    if r[j]==self.Xaxis[i][idx]:
+                    if idx >= len(self.Xaxis[i]):
+                        pass
+                    elif r[j]==self.Xaxis[i][idx]:
                         # Exact value:
                         KDE_tmp += self.KDE[i][idx,:]
                     else:
