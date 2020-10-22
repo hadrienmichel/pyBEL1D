@@ -346,20 +346,33 @@ class PREBEL:
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         reduceModels = False
+        varRepresented = 0.95
         if reduceModels:
-            pca_model = sklearn.decomposition.PCA(n_components=0.9) # Keeping 90% of the variance
+            pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(self.MODELS)
             n_CompPCA_Mod = m_h.shape[1]
             # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
-            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
             d_h = pca_data.fit_transform(self.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(self.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
             self.PCA = {'Data':pca_data,'Model':pca_model}
         else:
             m_h = self.MODELS # - np.mean(self.MODELS,axis=0)
             n_CompPCA_Mod = m_h.shape[1]
             #n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
-            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
             d_h = pca_data.fit_transform(self.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(self.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
             self.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
         cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
@@ -483,20 +496,33 @@ class PREBEL:
             print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
+        varRepresented = 0.95
         if reduceModels:
-            pca_model = sklearn.decomposition.PCA(n_components=0.9) # Keeping 90% of the variance
+            pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(PrebelNew.MODELS)
             n_CompPCA_Mod = m_h.shape[1]
             # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
-            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
             d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
             PrebelNew.PCA = {'Data':pca_data,'Model':pca_model}
         else:
             m_h = PrebelNew.MODELS # - np.mean(self.MODELS,axis=0)
             n_CompPCA_Mod = m_h.shape[1]
             #n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
-            pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
             d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
             PrebelNew.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
         cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)

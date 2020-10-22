@@ -1,6 +1,7 @@
 # Those files are untracted
 pyBEL1D/utilities/__pycache__/
-pyBELD/__pycache__/
+pyBEL1D/__pycache__/
+Arsalan/
 *.ipynb
 *.perf
 *.npz
@@ -15,3 +16,4 @@ __pycache__/
 !SEG2020_Bench.npy
 *.png
 Testings*
+!.research/*

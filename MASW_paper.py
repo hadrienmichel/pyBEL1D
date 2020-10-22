@@ -122,6 +122,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     means = np.zeros((nbIter,nbParam))
     stds = np.zeros((nbIter,nbParam))
     timings = np.zeros((nbIter,))
+    distances = np.ones((nbIter,))
     diverge = True
     distancePrevious = 1e10
     MixingUpper = 0
@@ -150,8 +151,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             end = time.time()
             timings[idxIter] = end-start
         # The distance is computed on the normalized distributions. Therefore, the tolerance is relative.
-        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelSynthetic.SAMPLES, tol=1e-3)
-        print('Wasserstein distance: {}'.format(distance))
+        threshold = 1.9*nbModelsBase**(-0.5)# Power law defined from the different tests
+        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelSynthetic.SAMPLES, tol=threshold)#1e-3)# Change to KStest -> p-value rejection = 5%
+        print('KS maximum distance: {} (threshold = {})'.format(distance,threshold))
+        distances[idxIter] = distance
         if not(diverge):# or (abs((distancePrevious-distance)/distancePrevious)*100<0.25):
             # Convergence acheived if:
             # 1) Distance below threshold
@@ -163,6 +166,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     timings = timings[:idxIter+1]
     means = means[:idxIter+1,:]
     stds = stds[:idxIter+1,:]
+    distances = distances[:idxIter+1]
 
     # PostbelSynthetic.run(Dataset,nbSamples=10000, NoiseModel=NoiseEstimate)
     # Graphs for the iterations:
@@ -189,6 +193,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
     ax.set_ylabel('Relative contribution')
     ax.set_xlabel('CCA dimension')
+    pyplot.show(block=False)
+
+    # Graph for the convergence
+    _, ax = pyplot.subplots()
+    ax.plot(range(idxIter+2)[1:],distances)
+    ax.set_ylabel('KS Distance')
+    ax.set_xlabel('Iteration')
     pyplot.show(block=False)
 
     # Add KDE graph at last iteration:

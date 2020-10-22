@@ -59,7 +59,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     pyplot.ylabel("Phase velocity [km/s]")
     pyplot.xscale('log')
     pyplot.yscale('log')
-    pyplot.show()
+    pyplot.show(block=False)
     ErrorModel = ErrorFreq # Error model for every frequency
 
     # Function to test the most direct approach:
@@ -107,12 +107,14 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
     # Now, let's see how to iterate:
     def testIter(nbIter=5):
-        nbModPre = 10000
+        distance = np.zeros((nbIter))
+        nbModPre = 1000
         means = np.zeros((nbIter,nbParam))
         stds = np.zeros((nbIter,nbParam))
         timings = np.zeros((nbIter,))
         start = time.time()
-        pool = pp.ProcessPool(mp.cpu_count())
+        parallel = False
+        pool = None#pp.ProcessPool(mp.cpu_count())
         diverge = True
         distancePrevious = 1e10
         MixingUpper = 0
@@ -121,7 +123,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             if idxIter == 0: # Initialization
                 TestCase = BEL1D.MODELSET().DC(prior=priorDC, Frequency=FreqMIR)
                 PrebelIter = BEL1D.PREBEL(TestCase,nbModPre)
-                PrebelIter.run(Parallelization=[True,pool])
+                PrebelIter.run(Parallelization=[parallel,pool])
                 ModLastIter = PrebelIter.MODELS
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -137,7 +139,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 MixingUpper += 1
                 MixingLower += 1
                 Mixing = MixingUpper/MixingLower
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Parallelization=[True,pool],Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Parallelization=[parallel,pool],Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -145,15 +147,15 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
                 end = time.time()
                 timings[idxIter] = end-start
-            diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-4)
-            print('Wasserstein distance: {}'.format(distance))
-            if not(diverge) or (abs((distancePrevious-distance)/distancePrevious)*100<1):
+            diverge, distance[idxIter] = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=1e-5)
+            print('KS distance: {}'.format(distance[idxIter]))
+            if not(diverge) or (abs((distancePrevious-distance[idxIter])/distancePrevious)*100<1):
                 # Convergence acheived if:
                 # 1) Distance below threshold
                 # 2) Distance does not vary significantly (less than 2.5%)
                 print('Model has converged at iter {}!'.format(idxIter+1))
                 break
-            distancePrevious = distance
+            distancePrevious = distance[idxIter]
             start = time.time()
         PostbelTest.ShowPostCorr(OtherMethod=PrebelIter.MODELS)
         PostbelTest.ShowPostModels(RMSE=True, Parallelization=[True,pool])
@@ -162,29 +164,36 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         means = means[:idxIter+1,:]
         stds = stds[:idxIter+1,:]
         paramnames = PostbelTest.MODPARAM.paramNames["NamesS"] # For the legend of the futur graphs
-        pool.terminate()
-        return timings, means, stds, paramnames
+        if pool is not None:
+            pool.terminate()
+        return timings, means, stds, paramnames, distance
 
     IterTest = True
 
     if IterTest:
-        nbIter = 100
-        timings, means, stds, names = testIter(nbIter=nbIter)
+        nbIter = 10
+        timings, means, stds, names, distance = testIter(nbIter=nbIter)
         print('Total time: {} seconds'.format(np.sum(timings)))
         pyplot.plot(np.arange(len(timings)),timings)
         pyplot.ylabel('Computation Time [sec]')
         pyplot.xlabel('Iteration nb.')
-        pyplot.show()
+        pyplot.show(block=False)
         pyplot.plot(np.arange(len(timings)),np.divide(means,meansPrior))
         pyplot.ylabel('Normalized means [/]')
         pyplot.xlabel('Iteration nb.')
         pyplot.legend(names)
-        pyplot.show()
+        pyplot.show(block=False)
         pyplot.plot(np.arange(len(timings)),np.divide(stds,stdPrior))
         pyplot.ylabel('Normalized standard deviations [/]')
         pyplot.xlabel('Iteration nb.')
         pyplot.legend(names)
-        pyplot.show()
+        pyplot.show(block=False)
+        pyplot.figure()
+        pyplot.plot(np.arange(len(timings)),distance[0:len(timings)])
+        pyplot.ylabel('Distance between successive posterior [/]')
+        pyplot.xlabel('Iteration nb.')
+        pyplot.legend(names)
+        pyplot.show(block=False)
 
     if not(IterTest):
         test(nbModPre=10000)
@@ -217,3 +226,5 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #         print('Dataset {} succeded in {} seconds!'.format(idxUsed+1,end-start))
     #     except:
     #         print('Dataset {} failed!'.format(idxUsed+1))
+
+    pyplot.show()
