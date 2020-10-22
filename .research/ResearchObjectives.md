@@ -53,6 +53,6 @@ Threshold(N) = A * N**(-k)
 
 where: 
 - N is the number of models sampled at both iterations (if different, resample for same sizes approximately)
-- A and k are fitted variables (a~1.9 and k~0.5, see Figure below)
+- A and k are fitted variables (a\~1.9 and k\~0.5, see Figure below)
 
 ![alt text](KSDistThreshold.png "Relathionship")
