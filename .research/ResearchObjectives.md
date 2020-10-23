@@ -48,11 +48,26 @@ However, using 5% as the threshold gives stange results and leads to erratic con
 Since it appears that only the number of samples interfers with the computed distance significantly, we will use this criterion as the one for convergence. The choosen threshold is the one that will ensure that if the distributions are the same as for the testings done, the chance of rejecting the similaritudes is lower than 5%. This threshold is defined in the Figure below and follows the law:
 
 <p align="center">
-Threshold(N) = A * N**(-k)
+Threshold(N) = A * N**(-0.5)
 </p>
 
 where: 
 - N is the number of models sampled at both iterations (if different, resample for same sizes approximately)
-- A and k are fitted variables (a\~1.9 and k\~0.5, see Figure below)
+- A and k are fitted variables (a\~1.87, see Figure below)
 
-![alt text](KSDistThreshold.png "Relathionship")
+![alt text](KSDistThreshold5percent.png "Relationship 5%")
+
+If we lower the threshold at 1%, the behaviour remains similar but the equation is different (a\~2.18, see Figure below)
+
+![alt text](KSDistThreshold1percent.png "Relationship 1%")
+
+In contrary, if we increase the threshold to 10%, we obtain a\~1.62 (see Figure below).
+
+![alt text](KSDistThreshold10percent.png "Relationship 10%")
+
+In summary, we can see that according to the different threshold, the relationship remains linear in the log-log space and is simply shifted (see Figure).
+
+![alt text](KSDistThresholdSummary.png "Relationship 10%")
+
+## Rejection sampling at each iteration:
+Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the 90% best fit from the posterior of previous iteration to the prior for the current iteration. This is expected to improve convergence and makes sens since we are able to do so.

@@ -142,7 +142,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             Mixing = MixingUpper/MixingLower
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
             # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel= NoiseEstimate,Simplified=False,nbMax=nbModelsBase,MixingRatio=Mixing)#,Parallelization=[False,None])
+            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel=NoiseEstimate,Simplified=False,nbMax=nbModelsBase,MixingRatio=1-Mixing,Rejection=False)#,Parallelization=[False,None])
             # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
             print(idxIter+1)
             PostbelSynthetic = BEL1D.POSTBEL(PrebelSynthetic)
@@ -151,7 +151,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             end = time.time()
             timings[idxIter] = end-start
         # The distance is computed on the normalized distributions. Therefore, the tolerance is relative.
-        threshold = 1.9*nbModelsBase**(-0.5)# Power law defined from the different tests
+        threshold = 1.62*nbModelsBase**(-0.50)# Power law defined from the different tests
         diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelSynthetic.SAMPLES, tol=threshold)#1e-3)# Change to KStest -> p-value rejection = 5%
         print('KS maximum distance: {} (threshold = {})'.format(distance,threshold))
         distances[idxIter] = distance
@@ -216,7 +216,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     McMC = np.load("MASW_Bench.npy")
     DREAM=McMC[:,:5]
     DREAM = np.unique(DREAM,axis=0)
-    PostbelSynthetic.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)
+    PostbelSynthetic.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)#ModLastIter)#DREAM)
 
     pyplot.show(block=False)
     # figs = [pyplot.figure(n) for n in pyplot.get_fignums()]

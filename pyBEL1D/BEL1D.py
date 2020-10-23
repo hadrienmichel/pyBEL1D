@@ -346,7 +346,7 @@ class PREBEL:
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         reduceModels = False
-        varRepresented = 0.95
+        varRepresented = 0.99
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(self.MODELS)
@@ -385,7 +385,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified:bool=False,RemoveOutlier:bool=False,nbMax:int=100000,MixingRatio:float=None,Parallelization:list=[False,None]):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified:bool=False,RemoveOutlier:bool=False,nbMax:int=100000,MixingRatio:float=None,Rejection=False,Parallelization:list=[False,None]):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -466,6 +466,14 @@ class PREBEL:
         PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
         PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        if Rejection and Dataset is not None: # Rejection only if true dataset known
+            # Compute the RMSE
+            RMSE = np.sqrt(np.square(np.subtract(Dataset,PrebelNew.FORWARD)).mean(axis=-1))
+            RMSE_max = np.quantile(RMSE,0.99) # We reject the 1% worst fit
+            idxDelete = np.greater_equal(RMSE,RMSE_max)
+            PrebelNew.MODELS = np.delete(PrebelNew.MODELS,np.where(idxDelete),0)
+            PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,np.where(idxDelete),0)
+            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
         if Simplified and (PrebelNew.nbModels>nbMax):
             import random
             # Using the mixing ratio to ensure a correct representation of all the models in the prior
@@ -496,7 +504,7 @@ class PREBEL:
             print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
-        varRepresented = 0.95
+        varRepresented = 0.99
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(PrebelNew.MODELS)
