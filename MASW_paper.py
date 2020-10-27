@@ -142,7 +142,17 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             Mixing = MixingUpper/MixingLower
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
             # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel=NoiseEstimate,Simplified=False,nbMax=nbModelsBase,MixingRatio=1-Mixing,Rejection=False)#,Parallelization=[False,None])
+            Rejection = False
+            if Rejection and Dataset is not None: # Rejection only if true dataset known
+                # Compute the RMSE
+                PostbelSynthetic.DataPost() # Compute the posterior datasets
+                RMSE = np.sqrt(np.square(np.subtract(Dataset,PostbelSynthetic.SAMPLESDATA)).mean(axis=-1))
+                RMSE_max = np.quantile(RMSE,0.95) # We reject the 1% worst fit
+                idxDelete = np.greater_equal(RMSE,RMSE_max)
+                PostbelSynthetic.SAMPLES = np.delete(PostbelSynthetic.SAMPLES,np.where(idxDelete),0)
+                PostbelSynthetic.SAMPLESDATA = np.delete(PostbelSynthetic.SAMPLESDATA,np.where(idxDelete),0)
+                PostbelSynthetic.nbModels = np.size(PostbelSynthetic.SAMPLES,axis=0)
+            PrebelSynthetic = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelSynthetic,POSTBEL=PostbelSynthetic,Dataset=Dataset,NoiseModel=NoiseEstimate,Simplified=False,nbMax=nbModelsBase,MixingRatio=1-Mixing)#,Parallelization=[False,None])
             # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
             print(idxIter+1)
             PostbelSynthetic = BEL1D.POSTBEL(PrebelSynthetic)
@@ -151,7 +161,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             end = time.time()
             timings[idxIter] = end-start
         # The distance is computed on the normalized distributions. Therefore, the tolerance is relative.
-        threshold = 1.62*nbModelsBase**(-0.50)# Power law defined from the different tests
+        threshold = 1.87*nbModelsBase**(-0.50)# Power law defined from the different tests
         diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelSynthetic.SAMPLES, tol=threshold)#1e-3)# Change to KStest -> p-value rejection = 5%
         print('KS maximum distance: {} (threshold = {})'.format(distance,threshold))
         distances[idxIter] = distance

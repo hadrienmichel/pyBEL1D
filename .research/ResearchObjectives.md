@@ -1,11 +1,11 @@
 # Objectives
 - Testing the impact of the represented variability in the dataset.
 - Stopping criterion: testing other metrics (Kullback-Liebler, Kolmogorov-Smirnov, ?)
+- Search the origin of models that have a clear break in the dataspace.
 - Test rejection sampling at each iterations (e.g., select only the 90% best fits)
 - Stopping criterion: testing on the RMSE distributions instead of the models? Coupled with RMSE filtering?
 - Implement and test rejection sampling and Geopsy on the datatset
 - Add RMSE on the bi-triangular figure?
-- Search the origin of models that have a clear break in the dataspace.
 - Test different mixing ratios and see if same results but faster/slower. Seek for optimum quality/time.
 - Falsifying the prior by testing a 5(?) layers model to predict a true 3-layers model.
 - *Research*: computing likelihood with correlated noise.
@@ -68,6 +68,26 @@ In contrary, if we increase the threshold to 10%, we obtain a\~1.62 (see Figure 
 In summary, we can see that according to the different threshold, the relationship remains linear in the log-log space and is simply shifted (see Figure).
 
 ![alt text](KSDistThresholdSummary.png "Relationship 10%")
+
+## Origin of odd models in the prior/posteriors
+
+When using the forward model, some models are returning datasets that presents and important break in the dispersion curve. This is not supposed to appen normaly. An example of those od models is presented in the figure below. They usually correspond to the highest RMSE but the should not be present in the first place.
+
+![alt text](OddModelsPresent.png "Odd models present")
+
+If we isolate the models, there is no obvious reason for their strange behaviour. We could imagine that those models are originating from low velocity zones or alike, but it is clearly not the case. 
+ 
+![alt text](OddIsolatedModels.png "Odd models") ![alt text](OddIsolatedData.png "Odd data")
+
+The Poisson's ratio are also explored. It gives no further info on why this is happenning. Everything is located in reasonable ranges and nothing appears problematic. The only lead that can be imagined from this analysisi is that the odd behaviour is caused by a strong change in the Poisson's ratio between the layers.
+
+![alt text](OddPoissonRatio.png "Odd models") ![alt text](OddPoissonRatioLayered.png "Odd models")
+
+To check this hypothesis, we compute the Poisson's ratio for every sampled model in the uniformely distributed space (prior) and observe what is the way the ratio evolves for the other models.
+
+![alt text](NotOddPoissonRatio.png "Good models") ![alt text](NotOddPoissonRatioLayered.png "Good models")
+
+If we analyze the variability of the Poisson's ratio for the model, no particular tendancy is detected either. 
 
 ## Rejection sampling at each iteration:
 Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the 90% best fit from the posterior of previous iteration to the prior for the current iteration. This is expected to improve convergence and makes sens since we are able to do so.

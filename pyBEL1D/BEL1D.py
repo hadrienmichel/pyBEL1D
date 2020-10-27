@@ -415,65 +415,70 @@ class PREBEL:
         # 2) Inject the samples from postbel:
         ModelsKeep = POSTBEL.SAMPLES
         # 2) Running the forward model
-        # For DC, sometimes, the code will return an error --> need to remove the model from the prior
-        indexCurr = 0
-        while True:
-            try:
-                tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
-                break
-            except:
-                indexCurr += 1
-                if indexCurr > PrebelNew.nbModels:
-                    raise Exception('The forward modelling failed!')
-        
-        if Parallelization[0]:
-            # We create a partial function that has a fixed fowrard function. The remaining arguments are :
-            #   - Model: a numpy array containing the model to compute
-            # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
-            functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
-            inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
-            if Parallelization[1] is not None:
-                pool = Parallelization[1]
-                terminatePool = False
-            else:
-                pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
-                Parallelization[1] = pool
-                terminatePool = True
-            pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
-            outputs = pool.map(functionParallel,inputs)
-            # pool.close()
-            # pool.join()
-            ForwardKeep = np.vstack(outputs) #ForwardParallel
-            notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
-            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-        else:
-            ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
-            notComputed = []
-            for i in range(np.size(ModelsKeep,axis=0)):
-                # print(i)
+        if not(len(POSTBEL.SAMPLESDATA) != 0):
+            # For DC, sometimes, the code will return an error --> need to remove the model from the prior
+            indexCurr = 0
+            while True:
                 try:
-                    ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
+                    tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
+                    break
                 except:
-                    ForwardKeep[i,:] = [None]*len(tmp)
-                    notComputed.append(i)
-            # Getting the uncomputed models and removing them:
-            ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-            ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-            newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-        print('{} models remaining after forward modelling!'.format(newModelsNb))
-        PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
-        PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
-        PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-        if Rejection and Dataset is not None: # Rejection only if true dataset known
-            # Compute the RMSE
-            RMSE = np.sqrt(np.square(np.subtract(Dataset,PrebelNew.FORWARD)).mean(axis=-1))
-            RMSE_max = np.quantile(RMSE,0.99) # We reject the 1% worst fit
-            idxDelete = np.greater_equal(RMSE,RMSE_max)
-            PrebelNew.MODELS = np.delete(PrebelNew.MODELS,np.where(idxDelete),0)
-            PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,np.where(idxDelete),0)
-            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
+                    indexCurr += 1
+                    if indexCurr > PrebelNew.nbModels:
+                        raise Exception('The forward modelling failed!')
+            
+            if Parallelization[0]:
+                # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+                #   - Model: a numpy array containing the model to compute
+                # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+                functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+                inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
+                if Parallelization[1] is not None:
+                    pool = Parallelization[1]
+                    terminatePool = False
+                else:
+                    pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+                    Parallelization[1] = pool
+                    terminatePool = True
+                pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+                outputs = pool.map(functionParallel,inputs)
+                # pool.close()
+                # pool.join()
+                ForwardKeep = np.vstack(outputs) #ForwardParallel
+                notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
+                ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+                ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+                newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+            else:
+                ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
+                notComputed = []
+                for i in range(np.size(ModelsKeep,axis=0)):
+                    # print(i)
+                    try:
+                        ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
+                    except:
+                        ForwardKeep[i,:] = [None]*len(tmp)
+                        notComputed.append(i)
+                # Getting the uncomputed models and removing them:
+                ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+                ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+                newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+            print('{} models remaining after forward modelling!'.format(newModelsNb))
+            PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
+            PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
+            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        else: # The posterior datasets had already been computed
+            PrebelNew.MODELS = np.append(POSTBEL.SAMPLES,PREBEL.MODELS,axis=0)
+            PrebelNew.FORWARD = np.append(POSTBEL.SAMPLESDATA,PREBEL.FORWARD,axis=0)
+            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        # if Rejection and Dataset is not None: # Rejection only if true dataset known
+        #     # Compute the RMSE
+        #     RMSE = np.sqrt(np.square(np.subtract(Dataset,PrebelNew.FORWARD)).mean(axis=-1))
+        #     RMSE_max = np.quantile(RMSE,0.95) # We reject the 1% worst fit
+        #     idxDelete = np.greater_equal(RMSE,RMSE_max)
+        #     PrebelNew.MODELS = np.delete(PrebelNew.MODELS,np.where(idxDelete),0)
+        #     PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,np.where(idxDelete),0)
+        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
         if Simplified and (PrebelNew.nbModels>nbMax):
             import random
             # Using the mixing ratio to ensure a correct representation of all the models in the prior
