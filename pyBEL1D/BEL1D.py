@@ -342,6 +342,19 @@ class PREBEL:
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
             timeEnd = time.time()
             print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
+        if self.MODPARAM.method == "DC":
+            # In the case of surface waves, the forward model sometimes provide datasets that have a sharp
+            # transition that is not possible in practice. We therefore need to remove those models. They 
+            # are luckily easy to identify. Their maximum variabilty is way larger than the other models.
+            VariabilityMax = np.max(np.abs(self.FORWARD[:,1:]-self.FORWARD[:,:-1]),axis=1)
+            from scipy.special import erfcinv
+            c = -1/(mt.sqrt(2)*erfcinv(3/2))
+            VariabilityMaxAuthorized = np.median(VariabilityMax) + 3 * c*np.median(np.abs(VariabilityMax-np.median(VariabilityMax)))
+            isOutlier = np.greater(np.abs(VariabilityMax),VariabilityMaxAuthorized)
+            self.MODELS = np.delete(self.MODELS,np.where(isOutlier),0)
+            self.FORWARD = np.delete(self.FORWARD,np.where(isOutlier),0)
+            newModelsNb = np.size(self.FORWARD,axis=0) # Get the number of models remaining
+            pass
         print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
@@ -413,64 +426,65 @@ class PREBEL:
         Modelset = POSTBEL.MODPARAM # A MODELSET class object
         PrebelNew = cls(Modelset)
         # 2) Inject the samples from postbel:
-        ModelsKeep = POSTBEL.SAMPLES
+        # ModelsKeep = POSTBEL.SAMPLES
         # 2) Running the forward model
         if not(len(POSTBEL.SAMPLESDATA) != 0):
             # For DC, sometimes, the code will return an error --> need to remove the model from the prior
-            indexCurr = 0
-            while True:
-                try:
-                    tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
-                    break
-                except:
-                    indexCurr += 1
-                    if indexCurr > PrebelNew.nbModels:
-                        raise Exception('The forward modelling failed!')
+            POSTBEL.DataPost()
+            # indexCurr = 0
+            # while True:
+            #     try:
+            #         tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
+            #         break
+            #     except:
+            #         indexCurr += 1
+            #         if indexCurr > PrebelNew.nbModels:
+            #             raise Exception('The forward modelling failed!')
             
-            if Parallelization[0]:
-                # We create a partial function that has a fixed fowrard function. The remaining arguments are :
-                #   - Model: a numpy array containing the model to compute
-                # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
-                functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
-                inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
-                if Parallelization[1] is not None:
-                    pool = Parallelization[1]
-                    terminatePool = False
-                else:
-                    pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
-                    Parallelization[1] = pool
-                    terminatePool = True
-                pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
-                outputs = pool.map(functionParallel,inputs)
-                # pool.close()
-                # pool.join()
-                ForwardKeep = np.vstack(outputs) #ForwardParallel
-                notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
-                ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-                ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-                newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-            else:
-                ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
-                notComputed = []
-                for i in range(np.size(ModelsKeep,axis=0)):
-                    # print(i)
-                    try:
-                        ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
-                    except:
-                        ForwardKeep[i,:] = [None]*len(tmp)
-                        notComputed.append(i)
-                # Getting the uncomputed models and removing them:
-                ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-                ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-                newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-            print('{} models remaining after forward modelling!'.format(newModelsNb))
-            PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
-            PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
-            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-        else: # The posterior datasets had already been computed
-            PrebelNew.MODELS = np.append(POSTBEL.SAMPLES,PREBEL.MODELS,axis=0)
-            PrebelNew.FORWARD = np.append(POSTBEL.SAMPLESDATA,PREBEL.FORWARD,axis=0)
-            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+            # if Parallelization[0]:
+            #     # We create a partial function that has a fixed fowrard function. The remaining arguments are :
+            #     #   - Model: a numpy array containing the model to compute
+            #     # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
+            #     functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
+            #     inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
+            #     if Parallelization[1] is not None:
+            #         pool = Parallelization[1]
+            #         terminatePool = False
+            #     else:
+            #         pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
+            #         Parallelization[1] = pool
+            #         terminatePool = True
+            #     pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
+            #     outputs = pool.map(functionParallel,inputs)
+            #     # pool.close()
+            #     # pool.join()
+            #     ForwardKeep = np.vstack(outputs) #ForwardParallel
+            #     notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
+            #     ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            #     ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            #     newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+            # else:
+            #     ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
+            #     notComputed = []
+            #     for i in range(np.size(ModelsKeep,axis=0)):
+            #         # print(i)
+            #         try:
+            #             ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
+            #         except:
+            #             ForwardKeep[i,:] = [None]*len(tmp)
+            #             notComputed.append(i)
+            #     # Getting the uncomputed models and removing them:
+            #     ModelsKeep = np.delete(ModelsKeep,notComputed,0)
+            #     ForwardKeep = np.delete(ForwardKeep,notComputed,0)
+            #     newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
+            # print('{} models remaining after forward modelling!'.format(newModelsNb))
+        #     PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
+        #     PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
+        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        # else: # The posterior datasets had already been computed
+        PrebelNew.MODELS = np.append(POSTBEL.SAMPLES,PREBEL.MODELS,axis=0)
+        PrebelNew.FORWARD = np.append(POSTBEL.SAMPLESDATA,PREBEL.FORWARD,axis=0)
+        PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         # if Rejection and Dataset is not None: # Rejection only if true dataset known
         #     # Compute the RMSE
         #     RMSE = np.sqrt(np.square(np.subtract(Dataset,PrebelNew.FORWARD)).mean(axis=-1))
@@ -781,6 +795,19 @@ class POSTBEL:
             self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
             self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
             newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+        if self.MODPARAM.method == "DC":
+            # In the case of surface waves, the forward model sometimes provide datasets that have a sharp
+            # transition that is not possible in practice. We therefore need to remove those models. They 
+            # are luckily easy to identify. Their maximum variabilty is way larger than the other models.
+            VariabilityMax = np.max(np.abs(self.SAMPLESDATA[:,1:]-self.SAMPLESDATA[:,:-1]),axis=1)
+            from scipy.special import erfcinv
+            c = -1/(mt.sqrt(2)*erfcinv(3/2))
+            VariabilityMaxAuthorized = np.median(VariabilityMax) + 3 * c*np.median(np.abs(VariabilityMax-np.median(VariabilityMax)))
+            isOutlier = np.greater(np.abs(VariabilityMax),VariabilityMaxAuthorized)
+            self.SAMPLES = np.delete(self.SAMPLES,np.where(isOutlier),0)
+            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,np.where(isOutlier),0)
+            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            pass
         print('{} models remaining after forward modelling!'.format(newSamplesNb))
         self.nbSamples = newSamplesNb
         return self.SAMPLESDATA

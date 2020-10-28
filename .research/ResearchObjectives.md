@@ -89,5 +89,10 @@ To check this hypothesis, we compute the Poisson's ratio for every sampled model
 
 If we analyze the variability of the Poisson's ratio for the model, no particular tendancy is detected either. 
 
+In conclusion, I have no idea why those models are present but they are non-phyisically consistent. Therefore, from there on, we will remove them from the models and see how the situation evolves. To do so, we will simply remove the outliers in the distribution of maximum absolute variability. This will remove the most problematic models and proved effective in our testings. We define the maximum absolute variability as:
+<p align="center">
+$$MaxVar = max(abs(d_(1:-1)-d_(0:-2)))$$
+</p>
+
 ## Rejection sampling at each iteration:
 Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the 90% best fit from the posterior of previous iteration to the prior for the current iteration. This is expected to improve convergence and makes sens since we are able to do so.
