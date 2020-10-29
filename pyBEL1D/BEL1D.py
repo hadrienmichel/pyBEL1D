@@ -359,7 +359,7 @@ class PREBEL:
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         reduceModels = False
-        varRepresented = 0.99
+        varRepresented = 0.90
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(self.MODELS)
@@ -430,7 +430,7 @@ class PREBEL:
         # 2) Running the forward model
         if not(len(POSTBEL.SAMPLESDATA) != 0):
             # For DC, sometimes, the code will return an error --> need to remove the model from the prior
-            POSTBEL.DataPost()
+            POSTBEL.DataPost(Parallelization=Parallelization)
             # indexCurr = 0
             # while True:
             #     try:
@@ -523,7 +523,7 @@ class PREBEL:
             print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
-        varRepresented = 0.99
+        varRepresented = 0.90
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(PrebelNew.MODELS)
@@ -570,8 +570,8 @@ class PREBEL:
             PrebelNew.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
         else:
             PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
-        if Parallelization[0] and terminatePool:
-            pool.terminate()
+        # if Parallelization[0] and terminatePool:
+        #     pool.terminate()
         return PrebelNew
     
     def ShowPreModels(self,TrueModel=None):

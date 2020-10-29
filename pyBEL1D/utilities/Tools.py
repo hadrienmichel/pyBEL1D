@@ -90,9 +90,11 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         dataNoisy = data + NoiseLevel*np.random.randn(nbTest,POSTBEL.FORWARD.shape[1])
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
-        for i in range(nbTest):
-           COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
-        Cf = np.squeeze(np.mean(COV_diff,axis=0))
+        err_f = scoreData-scoreDataNoisy
+        Cf = np.cov(err_f.T)
+        # for i in range(nbTest):
+        #    COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
+        # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))#POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     elif TypeMod == "DC":
@@ -100,36 +102,38 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #     print('Noise must be in the form of a list! Converted to default value!')
         #     NoiseLevel = [0.05, 100]
         # Propagating Noise:
-        PCA_Propag = True
-        if PCA_Propag:
-            nbTest = int(np.ceil(POSTBEL.nbModels/10)) #10
-            COV_diff = np.zeros((nbTest,dimD,dimD))
-            index = np.random.permutation(np.arange(POSTBEL.nbModels))
-            index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
-            data = POSTBEL.FORWARD[index,:] 
-            dataNoisy = data + np.multiply(np.repeat(np.random.randn(nbTest,1),data.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
-            #dataNoisy = data + np.multiply(np.random.randn(nbTest,data.shape[1]),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
-            scoreData = POSTBEL.PCA['Data'].transform(data)
-            scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
-            for i in range(nbTest):
-                COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
-            Cf = np.squeeze(np.median(COV_diff,axis=0))
-            Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))
-            Noise = np.diag(Cc)
-        else:
-            try:
-                Dataset = POSTBEL.DATA['True']
-            except:
-                Dataset = DatasetIn
-                if Dataset is None:
-                    raise Exception('The Dataset is not given for the current computation!')
-            nbTest = 1000#int(np.ceil(POSTBEL.nbModels/10))
-            nbDim = POSTBEL.CCA.x_scores_.shape[1]
-            CCA_Data = np.zeros((nbTest,nbDim))
-            Dataset_Noisy = np.repeat(Dataset, nbTest, axis=0) + np.multiply(np.repeat(np.random.randn(nbTest,1),Dataset.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(Dataset)[1])),Dataset.shape[0],axis=0))
-            d_obs_h = POSTBEL.PCA['Data'].transform(Dataset_Noisy)
-            CCA_Data = POSTBEL.CCA.transform(d_obs_h)
-            Noise = np.var(CCA_Data,axis=0)
+        # PCA_Propag = True
+        # if PCA_Propag:
+        nbTest = int(np.ceil(POSTBEL.nbModels/10)) #10
+        COV_diff = np.zeros((nbTest,dimD,dimD))
+        index = np.random.permutation(np.arange(POSTBEL.nbModels))
+        index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
+        data = POSTBEL.FORWARD[index,:] 
+        dataNoisy = data + np.multiply(np.repeat(np.random.randn(nbTest,1),data.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
+        #dataNoisy = data + np.multiply(np.random.randn(nbTest,data.shape[1]),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
+        scoreData = POSTBEL.PCA['Data'].transform(data)
+        scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
+        err_f = scoreData-scoreDataNoisy
+        Cf = np.cov(err_f.T)
+        # for i in range(nbTest):
+        #     COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
+        # Cf = np.squeeze(np.mean(COV_diff,axis=0))
+        Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))
+        Noise = np.diag(Cc)
+        # else:
+        #     try:
+        #         Dataset = POSTBEL.DATA['True']
+        #     except:
+        #         Dataset = DatasetIn
+        #         if Dataset is None:
+        #             raise Exception('The Dataset is not given for the current computation!')
+        #     nbTest = 1000#int(np.ceil(POSTBEL.nbModels/10))
+        #     nbDim = POSTBEL.CCA.x_scores_.shape[1]
+        #     #CCA_Data = np.zeros((nbTest,nbDim))
+        #     Dataset_Noisy = np.repeat(Dataset, nbTest, axis=0) + np.multiply(np.repeat(np.random.randn(nbTest,1),Dataset.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(Dataset)[1])),Dataset.shape[0],axis=0))
+        #     d_obs_h = POSTBEL.PCA['Data'].transform(Dataset_Noisy)
+        #     CCA_Data = POSTBEL.CCA.transform(d_obs_h)
+        #     Noise = np.var(CCA_Data,axis=0)
     elif TypeMod == "General":
         if not(isinstance(NoiseLevel,list)):
             raise Exception('NoiseLevel is not a list!')
@@ -143,9 +147,11 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         dataNoisy = data + np.multiply(np.random.randn(nbTest,POSTBEL.FORWARD.shape[1]),np.repeat(np.asarray(NoiseLevel),nbTest,axis=0))
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
-        for i in range(nbTest):
-           COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
-        Cf = np.squeeze(np.mean(COV_diff,axis=0))
+        err_f = scoreData-scoreDataNoisy
+        Cf = np.cov(err_f.T)
+        # for i in range(nbTest):
+        #    COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
+        # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))#POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         Noise = np.diag(Cc)
     else:

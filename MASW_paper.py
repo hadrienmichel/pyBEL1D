@@ -74,7 +74,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     forward = {"Fun":forwardFun,"Axis":Periods}
     cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
     # Initialize the model parameters for BEL1D
-    nbModelsBase = 1000
+    nbModelsBase = 10000
     start = time.time()
     ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
     # Compute the operations prior to the knowledge of field data:
@@ -142,12 +142,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             Mixing = MixingUpper/MixingLower
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
             # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            Rejection = False
+            Rejection = True # False
             if Rejection and Dataset is not None: # Rejection only if true dataset known
                 # Compute the RMSE
                 PostbelSynthetic.DataPost() # Compute the posterior datasets
                 RMSE = np.sqrt(np.square(np.subtract(Dataset,PostbelSynthetic.SAMPLESDATA)).mean(axis=-1))
-                RMSE_max = np.quantile(RMSE,0.95) # We reject the 1% worst fit
+                RMSE_max = np.quantile(RMSE,0.75) # We reject the 10% worst fit
                 idxDelete = np.greater_equal(RMSE,RMSE_max)
                 PostbelSynthetic.SAMPLES = np.delete(PostbelSynthetic.SAMPLES,np.where(idxDelete),0)
                 PostbelSynthetic.SAMPLESDATA = np.delete(PostbelSynthetic.SAMPLESDATA,np.where(idxDelete),0)

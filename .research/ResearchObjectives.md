@@ -91,8 +91,13 @@ If we analyze the variability of the Poisson's ratio for the model, no particula
 
 In conclusion, I have no idea why those models are present but they are non-phyisically consistent. Therefore, from there on, we will remove them from the models and see how the situation evolves. To do so, we will simply remove the outliers in the distribution of maximum absolute variability. This will remove the most problematic models and proved effective in our testings. We define the maximum absolute variability as:
 <p align="center">
-$$MaxVar = max(abs(d_(1:-1)-d_(0:-2)))$$
+MaxVar = max(abs(d<sub>(1:-1)</sub>-d<sub>(0:-2)</sub>))
 </p>
+where d is a single dataset with d<sub>i</sub> beeing the i-th point in the dataset.
+
+An outlier is defiend as beiing more than 3 times the scaled Median Absolute Deviation away from the median of the variabilities (definition from Matlab).
 
 ## Rejection sampling at each iteration:
-Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the 90% best fit from the posterior of previous iteration to the prior for the current iteration. This is expected to improve convergence and makes sens since we are able to do so.
+Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the X-percent best fit from the posterior of previous iteration to the prior for the current iteration. This approach is expected to improve convergence. This indeed improves dramatically convergence. With such approach, we are much closer to a McMC algorithm, however, we are still able to fully leverage the parralel capabilities of the used computer, which is not the case for McMC algorithms.
+
+Results show that we are converging approximately 33% faster using only the 75% best fits while still converging towrads the same posterior.
