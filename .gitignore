@@ -2,6 +2,7 @@
 pyBEL1D/utilities/__pycache__/
 pyBEL1D/__pycache__/
 Arsalan/
+testingRejection/
 *.ipynb
 *.perf
 *.npz

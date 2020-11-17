@@ -398,7 +398,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Simplified:bool=False,RemoveOutlier:bool=False,nbMax:int=100000,MixingRatio:float=None,Rejection=False,Parallelization:list=[False,None]):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None]):#Simplified:bool=False,nbMax:int=100000,
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -482,8 +482,8 @@ class PREBEL:
         #     PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
         #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         # else: # The posterior datasets had already been computed
-        PrebelNew.MODELS = np.append(POSTBEL.SAMPLES,PREBEL.MODELS,axis=0)
-        PrebelNew.FORWARD = np.append(POSTBEL.SAMPLESDATA,PREBEL.FORWARD,axis=0)
+        PrebelNew.MODELS = np.append(PREBEL.MODELS,POSTBEL.SAMPLES,axis=0)
+        PrebelNew.FORWARD = np.append(PREBEL.FORWARD,POSTBEL.SAMPLESDATA,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         # if Rejection and Dataset is not None: # Rejection only if true dataset known
         #     # Compute the RMSE
@@ -493,34 +493,34 @@ class PREBEL:
         #     PrebelNew.MODELS = np.delete(PrebelNew.MODELS,np.where(idxDelete),0)
         #     PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,np.where(idxDelete),0)
         #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
-        if Simplified and (PrebelNew.nbModels>nbMax):
-            import random
-            # Using the mixing ratio to ensure a correct representation of all the models in the prior
-            if MixingRatio is not None:
-                # We need to keep half of the models from the first half of the prior and half from the second half
-                samp1 = np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
-                samp2 = nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
-                print('Sampling 1: {} \nSampling 2: {}'.format(samp1,samp2))
-                if samp2 > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
-                    samp2 = PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))
-                    samp1 = nbMax - samp2
-                    if samp1 > int(np.ceil(PrebelNew.nbModels/2)):
-                        raise Exception('Impossible to use this proportion with current sample set!')
-                # print('Nb To Sample 1 : {} out of {}'.format(np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),int(np.ceil(PrebelNew.nbModels/2))))
-                # if np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > int(np.ceil(PrebelNew.nbModels/2)):
-                #     raise Exception('Error')
-                idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), samp1))#np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])))
-                # print('Nb To Sample 2 : {} out of {}'.format(nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))))
-                # if nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
-                #     raise Exception('Error')
-                idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), samp2))  + int(np.ceil(PrebelNew.nbModels/2))#nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]))) + int(np.ceil(PrebelNew.nbModels/2))
-                idxKeep = np.concatenate((idxKeep1,idxKeep2))
-            else:
-                idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
-            PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
-            PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
-            PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-            print('Prior simplified to {} random samples'.format(nbMax))
+        # if Simplified and (PrebelNew.nbModels>nbMax):
+        #     import random
+        #     # Using the mixing ratio to ensure a correct representation of all the models in the prior
+        #     if MixingRatio is not None:
+        #         # We need to keep half of the models from the first half of the prior and half from the second half
+        #         samp1 = np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
+        #         samp2 = nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
+        #         print('Sampling 1: {} \nSampling 2: {}'.format(samp1,samp2))
+        #         if samp2 > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
+        #             samp2 = PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))
+        #             samp1 = nbMax - samp2
+        #             if samp1 > int(np.ceil(PrebelNew.nbModels/2)):
+        #                 raise Exception('Impossible to use this proportion with current sample set!')
+        #         # print('Nb To Sample 1 : {} out of {}'.format(np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),int(np.ceil(PrebelNew.nbModels/2))))
+        #         # if np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > int(np.ceil(PrebelNew.nbModels/2)):
+        #         #     raise Exception('Error')
+        #         idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), samp1))#np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])))
+        #         # print('Nb To Sample 2 : {} out of {}'.format(nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))))
+        #         # if nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
+        #         #     raise Exception('Error')
+        #         idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), samp2))  + int(np.ceil(PrebelNew.nbModels/2))#nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]))) + int(np.ceil(PrebelNew.nbModels/2))
+        #         idxKeep = np.concatenate((idxKeep1,idxKeep2))
+        #     else:
+        #         idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
+        #     PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
+        #     PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
+        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        #     print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
         varRepresented = 0.90
@@ -567,9 +567,9 @@ class PREBEL:
         # 5) KDE:
         PrebelNew.KDE = KDE(d_c,m_c)
         if Dataset is None:
-            PrebelNew.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
+            PrebelNew.KDE.KernelDensity(Parallelization=Parallelization)
         else:
-            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,Parallelization=Parallelization)
         # if Parallelization[0] and terminatePool:
         #     pool.terminate()
         return PrebelNew
@@ -1096,6 +1096,24 @@ class POSTBEL:
         stds = np.std(self.SAMPLES,axis=0)
         return means, stds
     
+class StatsResults:
+    def __init__(self, means=None, stds=None, timing=None, distance=None):
+        self.means = means
+        self.stds = stds
+        self.timing = timing
+        self.distance = distance
+    def saveStats(self,Filename='Stats'):
+        import dill
+        file_write = open(Filename+'.stats','wb')
+        dill.dump(self,file_write)
+        file_write.close()
+def loadStats(Filename):
+    import dill
+    file_read = open(Filename,'rb')
+    Stats = dill.load(file_read)
+    file_read.close()
+    return Stats
+    
 # Saving/loading operations:
 def SavePREBEL(CurrentPrebel:PREBEL, Filename='PREBEL_Saved'):
     '''SavePREBEL is a function that saves the current prebel class object.
@@ -1175,3 +1193,145 @@ def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
             CurrentPostbel.DataPost() # By default not parallelized
         np.savetxt(Filename+'.datas',CurrentPostbel.SAMPLESDATA,delimiter='\t')
     np.savetxt(Filename+'.models',CurrentPostbel.SAMPLES,delimiter='\t')
+
+# Iterative prior resampling:
+from typing import Callable
+def defaultMixing(iter) -> float:
+    return 0.5
+def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
+    nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
+    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=1.0, Mixing:Callable[[int], int]=defaultMixing, Graphs:bool=False):
+    '''IPR (Iterative prior resampling) is a function that will compute the posterior 
+    with iterative prior resampling for a given model defined via a MODELSET class object.
+
+    It takes as arguments:
+        - MODEL (MODELSET): the MODELSET class object defining the different elements for 
+                            the computation of the forward model and the definition of the
+                            prior.
+        - Dataset: The true field dataset to be fitted
+        - NoiseEstimate: The estimated noise level
+        - Parallelization (list=[False,None]): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                                    provided
+        - nbModelsBase (int=1000): the number of models to sample in the initial prior
+        - nbModelsSample (int=None): the number of models sampled to build the posterior. 
+                                     If None, the number is equal to nbModelBase
+        - stats (bool=False): return (True) or not (False) the statistics about the 
+                              different iterations.
+        - saveIters (bool=False): save (True) or not (False) the intermediate results in 
+                                  the saveItersFolder directory
+        - saveItersFolder (str="IPR_Results"): The directory where the files will be stored
+        - nbIterMax (int=100): Maximum number of iterations
+        - Rejection (float=0.9): Maximum quantile for the RMSE of the accepted models in the
+                                 posterior
+        - Mixing (callable): Function that returns the mixing ratio at a given iteration. The 
+                             default value is 0.5 whatever the iteration.
+        - Graphs (bool=False): Show diagnistic graphs (True) or not (False)
+    '''
+    from copy import deepcopy
+    if nbModelsSample is None:
+        nbModelsSample = nbModelsBase
+    if Dataset is None:
+        raise Exception('No Dataset provided!')
+    start = time.time()
+    Prebel = PREBEL(MODPARAM=MODEL, nbModels=nbModelsBase)
+    Prebel.run(Parallelization=Parallelization)
+    ModelLastIter = Prebel.MODELS
+    statsNotReturn = True
+    if Graphs:
+        stats = True
+    if stats:
+        statsNotReturn = False
+        statsReturn = []
+    if saveIters:
+        import os
+        if not(os.path.isdir(saveItersFolder)):
+            # Create the dierctory if it does not exist:
+            os.mkdir(saveItersFolder)
+        elif len(os.listdir(saveItersFolder)) != 0:
+            print('The given directory will be overwritten!')
+            input('Press any key to continue...')
+        SavePREBEL(Prebel,saveItersFolder + '/IPR')
+    for it in range(nbIterMax):
+        # Iterating:
+        if Mixing is not None:
+            nbModPrebel = Prebel.nbModels
+            MixingUsed = Mixing(it)
+            nbPostAdd = int(MixingUsed*nbModPrebel/Rejection) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
+            nbSamples = max([nbModelsSample,nbPostAdd])
+        else:
+            nbSamples = nbModelsSample
+        Postbel = POSTBEL(Prebel)
+        Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
+        end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
+        Postbel.DataPost(Parallelization=Parallelization)
+        if Mixing is not None:
+            # From there on, we need:
+            #   - the Postbel object with nbModelsSample samples inside
+            #   - the Postbel object with nbPostAdd samples inside
+            # if nbPostAdd < nbModelsSample:
+            #   PostbelAdd = sampled down Postbel
+            # else:
+            #   PostbelAdd = Postbel
+            #   Postbel = sampled down postbel
+            # Convergence on Postbel (with nbModelsSample models inside)
+            PostbelAdd = deepcopy(Postbel)
+            import random
+            if (nbPostAdd < nbModelsSample) and (PostbelAdd.nbSamples > nbPostAdd):
+                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbPostAdd)
+                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
+                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
+                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
+            elif (nbModelsSample < nbPostAdd) and (Postbel.nbSamples > nbModelsSample):
+                idxKeep = random.sample(range(Postbel.nbSamples), nbModelsSample)
+                Postbel.SAMPLES = Postbel.SAMPLES[idxKeep,:]
+                Postbel.SAMPLESDATA = Postbel.SAMPLESDATA[idxKeep,:]
+                Postbel.nbSamples = np.size(Postbel.SAMPLES,axis=0)
+        else:
+            PostbelAdd = Postbel
+        # Testing for convergence:
+        threshold = 1.87*nbModelsSample**(-0.50)# Power law defined from the different tests
+        diverge, distance = Tools.ConvergeTest(SamplesA=ModelLastIter,SamplesB=Postbel.SAMPLES, tol=threshold)
+        if stats:
+            means, stds = Postbel.GetStats()
+            statsReturn.append(StatsResults(means, stds, end-start, distance))
+        if saveIters:
+            SavePOSTBEL(Postbel,saveItersFolder + '/IPR_{}'.format(it))
+        if not(diverge):
+            print('Model has converged at iter {}.'.format(it))
+            break
+        ModelLastIter = Postbel.SAMPLES
+        # Preparing next iteration:
+        if Rejection < 1.0:
+            RMSE = np.sqrt(np.square(np.subtract(Dataset,PostbelAdd.SAMPLESDATA)).mean(axis=-1))
+            RMSE_max = np.quantile(RMSE,Rejection) # We reject the 10% worst fit
+            idxDelete = np.greater_equal(RMSE,RMSE_max)
+            PostbelAdd.SAMPLES = np.delete(PostbelAdd.SAMPLES,np.where(idxDelete),0)
+            PostbelAdd.SAMPLESDATA = np.delete(PostbelAdd.SAMPLESDATA,np.where(idxDelete),0)
+            PostbelAdd.nbModels = np.size(PostbelAdd.SAMPLES,axis=0)
+        Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization)
+    if Graphs:
+        # plot the different graphs for the analysis of the results:
+        pyplot.figure()
+        pyplot.plot(range(len(statsReturn)),[statsReturn[i].timing for i in range(len(statsReturn))])
+        ax = pyplot.gca()
+        ax.set_ylabel('Cumulative CPU time [sec]')
+        ax.set_xlabel('Iteration nb.')
+        nbParam = len(Prebel.MODPARAM.prior)
+        for j in range(nbParam):
+            pyplot.figure()
+            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j] for i in range(len(statsReturn))],'b-')
+            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j]+statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
+            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j]-statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(Prebel.MODPARAM.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Posterior distribution')
+            ax.set_xlabel('Iteration nb.')
+        pyplot.show(block=False)
+
+    if not(statsNotReturn):
+        return Prebel, Postbel, statsReturn
+    else:
+        return Prebel, Postbel

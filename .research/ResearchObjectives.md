@@ -9,6 +9,7 @@
 - Test different mixing ratios and see if same results but faster/slower. Seek for optimum quality/time.
 - Falsifying the prior by testing a 5(?) layers model to predict a true 3-layers model.
 - *Research*: computing likelihood with correlated noise.
+- *Research*: non-linear CCA
 
 # Observations:
 
@@ -101,3 +102,4 @@ An outlier is defiend as beiing more than 3 times the scaled Median Absolute Dev
 Since at every iteration we need to compute the forward model, it is possible to select the best models only. To do so, we will compute the RMSE of the models and add models of the X-percent best fit from the posterior of previous iteration to the prior for the current iteration. This approach is expected to improve convergence. This indeed improves dramatically convergence. With such approach, we are much closer to a McMC algorithm, however, we are still able to fully leverage the parralel capabilities of the used computer, which is not the case for McMC algorithms.
 
 Results show that we are converging approximately 33% faster using only the 75% best fits while still converging towrads the same posterior.
+
