@@ -398,7 +398,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None]):#Simplified:bool=False,nbMax:int=100000,
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None]):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:

@@ -24,7 +24,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     from pysurf96 import surf96
     from scipy import stats
 
-    Graphs = False
+    Graphs = True
 
     # Define the model:
     TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])#Thickness and Vs only
@@ -82,11 +82,45 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     def MixingFunc(iter:int) -> float:
         return 1/(iter+1) # Always keeping the same proportion of models as the initial prior
     if stats:
-        Prebel, Postbel, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFunc,Graphs=True)
+        Prebel, Postbel, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFunc,Graphs=Graphs)
     else:
-        Prebel, Postbel = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=True)
-    pyplot.show()
-    pass
+        Prebel, Postbel = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs)
+    if Graphs:
+        # Show final results analysis:
+        # Graphs for the iterations:
+        Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
+        CurrentGraph = pyplot.gcf()
+        CurrentGraph = CurrentGraph.get_axes()[0]
+        CurrentGraph.plot(Periods, DatasetClean+NoiseEstimate,'k--')
+        CurrentGraph.plot(Periods, DatasetClean-NoiseEstimate,'k--')
+        CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
+        CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
+        CurrentGraph.plot(Periods, Dataset,'k')
+        Postbel.ShowPostCorr(TrueModel=TrueModel)
+        Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)#,Parallelization=[True, pool])
+        # Graph for the CCA space parameters loads
+        _, ax = pyplot.subplots()
+        B = Postbel.CCA.y_loadings_
+        B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
+        ind =  np.asarray(range(B.shape[0]))+1
+        ax.bar(x=ind,height=B[0],label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][0]))
+        for i in range(B.shape[0]+1)[1:-1]:
+            ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
+        ax.set_ylabel('Relative contribution')
+        ax.set_xlabel('CCA dimension')
+        pyplot.show(block=False)
+
+        # Compare the results to McMC results:
+        McMC = np.load("MASW_Bench.npy")
+        DREAM=McMC[:,:5]
+        DREAM = np.unique(DREAM,axis=0)
+        Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)
+
+        # Stop execution to display the graphs:
+        pyplot.show()
 
     ##################
     # Now that it works, we will test the different input parameters of the function:
@@ -94,7 +128,239 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #   nbModelsSample
     #   Mixing
     #   Rejection
-    ##################
+    # For each case: testing variations whithin given range + repeat 100 times -> analysis of only the statistics
+    ###################
+    ## 1) nbModelsBase=nbModelsSample variation -> no mixing 
+    nbTest, nbRepeat = (25, 100)
+    valTest = np.logspace(2,5,nbTest,dtype=np.int)
+    # Initialize the lists with the values
+    nbModels = []
+    nbIter = []
+    cpuTime = []
+    meansEnd = []
+    stdsEnd = []
+    distEnd = []
+    for nbModelsBase in valTest:
+        for repeat in range(nbRepeat):
+            _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=None,Graphs=False)
+            # Processing of the results:
+            nbIter.append(len(stats))
+            cpuTime.append(stats[-1].timing)
+            meansEnd.append(stats[-1].means)
+            stdsEnd.append(stats[-1].stds)
+            distEnd.append(stats[-1].distance)
+    if Graphs:
+        # CPU time evolution
+        pyplot.figure()
+        means = np.mean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Number of models [/]')
+        ax.set_ylabel('CPU time [sec]')
+        # Number of iterations
+        pyplot.figure()
+        means = np.mean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Number of models [/]')
+        ax.set_ylabel('Number of iterations [/]')
+        # Convergence distance
+        pyplot.figure()
+        means = np.mean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Number of models [/]')
+        ax.set_ylabel('Convergence distance [/]')
+        # Converged distributions
+        nbParam = len(ModelSynthetic.prior)
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Mean value obtained')
+            ax.set_xlabel('Number of models [/]')
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Standard deviation value obtained')
+            ax.set_xlabel('Number of models [/]')
+        pyplot.show(block=False)
+    ## 2) Mixing:
+    valTest = np.linspace(0.1,2.0,nbTest)
+    nbModelsBase = 1000
+    nbModels = []
+    nbIter = []
+    cpuTime = []
+    meansEnd = []
+    stdsEnd = []
+    distEnd = []
+    for mixingParam in valTest:
+        def MixingFuncTest(iter:int) -> float:
+            return mixingParam # Always keeping the same proportion of models as the initial prior
+        for repeat in range(nbRepeat):
+            _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFuncTest,Graphs=False)
+            # Processing of the results:
+            nbIter.append(len(stats))
+            cpuTime.append(stats[-1].timing)
+            meansEnd.append(stats[-1].means)
+            stdsEnd.append(stats[-1].stds)
+            distEnd.append(stats[-1].distance)
+    if Graphs:
+        # CPU time evolution
+        pyplot.figure()
+        means = np.mean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Mixing ratio [/]')
+        ax.set_ylabel('CPU time [sec]')
+        # Number of iterations
+        pyplot.figure()
+        means = np.mean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Mixing ratio [/]')
+        ax.set_ylabel('Number of iterations [/]')
+        # Convergence distance
+        pyplot.figure()
+        means = np.mean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Mixing ratio [/]')
+        ax.set_ylabel('Convergence distance [/]')
+        # Converged distributions
+        nbParam = len(ModelSynthetic.prior)
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Mean value obtained')
+            ax.set_xlabel('Mixing ratio [/]')
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Standard deviation value obtained')
+            ax.set_xlabel('Mixing ratio [/]')
+        pyplot.show(block=False)
+    ## 3) Rejection
+    valTest = np.linspace(0.1,1.0,nbTest)
+    nbModelsBase = 1000
+    nbModels = []
+    nbIter = []
+    cpuTime = []
+    meansEnd = []
+    stdsEnd = []
+    distEnd = []
+    for rejectTest in valTest:
+        for repeat in range(nbRepeat):
+            _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=None,Graphs=False,Rejection=rejectTest)
+            # Processing of the results:
+            nbIter.append(len(stats))
+            cpuTime.append(stats[-1].timing)
+            meansEnd.append(stats[-1].means)
+            stdsEnd.append(stats[-1].stds)
+            distEnd.append(stats[-1].distance)
+    if Graphs:
+        # CPU time evolution
+        pyplot.figure()
+        means = np.mean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Rejection [/]')
+        ax.set_ylabel('CPU time [sec]')
+        # Number of iterations
+        pyplot.figure()
+        means = np.mean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Rejection [/]')
+        ax.set_ylabel('Number of iterations [/]')
+        # Convergence distance
+        pyplot.figure()
+        means = np.mean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        stds = np.std(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        pyplot.plot(valTest,means,'b-')
+        pyplot.plot(valTest,means+stds,'b--')
+        pyplot.plot(valTest,means-stds,'b--')
+        ax = pyplot.gca()
+        ax.set_xlabel('Rejection [/]')
+        ax.set_ylabel('Convergence distance [/]')
+        # Converged distributions
+        nbParam = len(ModelSynthetic.prior)
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([meansEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Mean value obtained')
+            ax.set_xlabel('Rejection [/]')
+        for j in range(nbParam):
+            pyplot.figure()
+            means = np.mean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            stds = np.std(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+            pyplot.plot(valTest,means,'b-')
+            pyplot.plot(valTest,means+stds,'b--')
+            pyplot.plot(valTest,means-stds,'b--')
+            ax = pyplot.gca()
+            ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+            ax.set_ylabel('Standard deviation value obtained')
+            ax.set_xlabel('Rejection [/]')
+        pyplot.show(block=False)
+        # Blocking execution to display graphs
+        pyplot.show()
+
 
     # # Compute the operations prior to the knowledge of field data:
     # PrebelSynthetic = BEL1D.PREBEL(MODPARAM=ModelSynthetic, nbModels=nbModelsBase)
