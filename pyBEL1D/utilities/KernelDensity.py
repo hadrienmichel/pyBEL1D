@@ -137,7 +137,7 @@ class KDE:
         for i in range(self.nb_dim):
             self.datasets[i] = np.column_stack((X[:,i],Y[:,i]))
     
-    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=[False, None]):
+    def KernelDensity(self,dim=None,XTrue=None,NoiseError=None,RemoveOutlier=False, Parallelization=[False, None],verbose:bool=False):
         '''KERNELDENSITY computes the kernel density estimation for a given dataset.
         
         It can run without arguments (default) but several arguments are optional:
@@ -188,7 +188,8 @@ class KDE:
             outputs = pool.map(FuncPara,inKernel)
             # pool.close()
             # pool.join()
-            print('Parallel passed!')
+            if verbose:
+                print('Parallel passed!')
             idx = 0
             for i in dim:
                 self.KDE[i] = outputs[idx][0]
@@ -339,7 +340,7 @@ class KDE:
                 raise Exception('No KDE field at dimension {}'.format(i))
         pyplot.show(block=False)
 
-    def GetDist(self,Xvals=[0],dim=None,Noise=None):
+    def GetDist(self,Xvals=[0],dim=None,Noise=None,verbose:bool=False):
         '''GETDIST is a method that extracts the distribution for a given X value from the KDE.
 
         It takes as argument:
@@ -388,7 +389,8 @@ class KDE:
                     CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
                     Dist[i] = [[self.Yaxis[i]], [KDE], [CDF]]
         else:
-            print(Noise)
+            if verbose:
+                print('Noise:',Noise)
             for i in dim:
                 KDE_tmp = np.zeros_like(self.KDE[i][1,:])
                 samples = 100

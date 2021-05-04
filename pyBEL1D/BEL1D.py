@@ -14,6 +14,8 @@ from pathos import pools as pp
 from functools import partial
 import time
 
+from pysurf96 import surf96
+
 def round_to_5(x,n=1): 
     # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
     tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
@@ -271,7 +273,7 @@ class PREBEL:
         # KDE: a class pobject KDE (custom)
         self.KDE = []
 
-    def run(self, RemoveOutlier:bool=False, Parallelization=[False, None]):
+    def run(self, RemoveOutlier:bool=False, Parallelization=[False, None],verbose:bool=False):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
@@ -326,7 +328,8 @@ class PREBEL:
             self.FORWARD = np.array(np.delete(self.FORWARD,notComputed,0),dtype=np.float64)
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
             timeEnd = time.time()
-            print('The Parallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
+            if verbose:
+                print('The Parallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
         else:
             notComputed = []
             for i in range(self.nbModels):
@@ -341,13 +344,14 @@ class PREBEL:
             self.FORWARD = np.delete(self.FORWARD,notComputed,0)
             newModelsNb = np.size(self.MODELS,axis=0) # Get the number of models remaining
             timeEnd = time.time()
-            print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
+            if verbose:
+                print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd-timeBegin))
         if self.MODPARAM.method == "DC":
             # In the case of surface waves, the forward model sometimes provide datasets that have a sharp
             # transition that is not possible in practice. We therefore need to remove those models. They 
             # are luckily easy to identify. Their maximum variabilty is way larger than the other models.
             VariabilityMax = np.max(np.abs(self.FORWARD[:,1:]-self.FORWARD[:,:-1]),axis=1)
-            from scipy.special import erfcinv
+            from scipy.special import erfcinv # https://github.com/PyCQA/pylint/issues/3744 pylint: disable=no-name-in-module
             c = -1/(mt.sqrt(2)*erfcinv(3/2))
             VariabilityMaxAuthorized = np.median(VariabilityMax) + 3 * c*np.median(np.abs(VariabilityMax-np.median(VariabilityMax)))
             isOutlier = np.greater(np.abs(VariabilityMax),VariabilityMaxAuthorized)
@@ -355,7 +359,8 @@ class PREBEL:
             self.FORWARD = np.delete(self.FORWARD,np.where(isOutlier),0)
             newModelsNb = np.size(self.FORWARD,axis=0) # Get the number of models remaining
             pass
-        print('{} models remaining after forward modelling!'.format(newModelsNb))
+        if verbose:
+            print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         reduceModels = False
@@ -369,7 +374,8 @@ class PREBEL:
             d_h = pca_data.fit_transform(self.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
-                print('The data space can be represented with fewer dimensions than the models!')
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
@@ -382,7 +388,8 @@ class PREBEL:
             d_h = pca_data.fit_transform(self.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
-                print('The data space can be represented with fewer dimensions than the models!')
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
@@ -398,7 +405,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None]):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None],verbose:bool=False):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -533,7 +540,8 @@ class PREBEL:
             d_h = pca_data.fit_transform(PrebelNew.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
-                print('The data space can be represented with fewer dimensions than the models!')
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(PrebelNew.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
@@ -546,7 +554,8 @@ class PREBEL:
             d_h = pca_data.fit_transform(PrebelNew.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
-                print('The data space can be represented with fewer dimensions than the models!')
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(PrebelNew.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
@@ -735,7 +744,7 @@ class POSTBEL:
                     achieved = True
             self.SAMPLES = Samples
 
-    def DataPost(self, Parallelization=[False,None]):
+    def DataPost(self, Parallelization=[False,None],verbose:bool=False):
         '''DATAPOST is a function that computes the forward model for all the 
         models sampled from the posterior.
 
@@ -800,7 +809,7 @@ class POSTBEL:
             # transition that is not possible in practice. We therefore need to remove those models. They 
             # are luckily easy to identify. Their maximum variabilty is way larger than the other models.
             VariabilityMax = np.max(np.abs(self.SAMPLESDATA[:,1:]-self.SAMPLESDATA[:,:-1]),axis=1)
-            from scipy.special import erfcinv
+            from scipy.special import erfcinv # https://github.com/PyCQA/pylint/issues/3744 pylint: disable=no-name-in-module
             c = -1/(mt.sqrt(2)*erfcinv(3/2))
             VariabilityMaxAuthorized = np.median(VariabilityMax) + 3 * c*np.median(np.abs(VariabilityMax-np.median(VariabilityMax)))
             isOutlier = np.greater(np.abs(VariabilityMax),VariabilityMaxAuthorized)
@@ -808,7 +817,8 @@ class POSTBEL:
             self.SAMPLESDATA = np.delete(self.SAMPLESDATA,np.where(isOutlier),0)
             newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
             pass
-        print('{} models remaining after forward modelling!'.format(newSamplesNb))
+        if verbose:
+            print('{} models remaining after forward modelling!'.format(newSamplesNb))
         self.nbSamples = newSamplesNb
         return self.SAMPLESDATA
 
@@ -1200,7 +1210,8 @@ def defaultMixing(iter) -> float:
     return 0.5
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
     nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
-    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=1.0, Mixing:Callable[[int], int]=defaultMixing, Graphs:bool=False):
+    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=1.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
+    verbose:bool=False):
     '''IPR (Iterative prior resampling) is a function that will compute the posterior 
     with iterative prior resampling for a given model defined via a MODELSET class object.
 
@@ -1230,6 +1241,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                              default value is 0.5 whatever the iteration.
         - Graphs (bool=False): Show diagnistic graphs (True) or not (False)
     '''
+    from .utilities.Tools import nSamplesConverge
     from copy import deepcopy
     if nbModelsSample is None:
         nbModelsSample = nbModelsBase
@@ -1238,6 +1250,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
     start = time.time()
     Prebel = PREBEL(MODPARAM=MODEL, nbModels=nbModelsBase)
     Prebel.run(Parallelization=Parallelization)
+    PrebelInit = Prebel
     ModelLastIter = Prebel.MODELS
     statsNotReturn = True
     if Graphs:
@@ -1284,15 +1297,19 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                 PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
                 PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
                 PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
-            elif (nbModelsSample < nbPostAdd) and (Postbel.nbSamples > nbModelsSample):
-                idxKeep = random.sample(range(Postbel.nbSamples), nbModelsSample)
-                Postbel.SAMPLES = Postbel.SAMPLES[idxKeep,:]
-                Postbel.SAMPLESDATA = Postbel.SAMPLESDATA[idxKeep,:]
-                Postbel.nbSamples = np.size(Postbel.SAMPLES,axis=0)
+            elif (nbModelsSample < nbPostAdd) and (PostbelAdd.nbSamples > nbModelsSample):
+                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbModelsSample)
+                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
+                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
+                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
         else:
             PostbelAdd = Postbel
-        # Testing for convergence:
-        threshold = 1.87*nbModelsSample**(-0.50)# Power law defined from the different tests
+        # Testing for convergence (5% probability of false positive):
+        if len(ModelLastIter) > nSamplesConverge:
+            nbConvergeSamp = nSamplesConverge
+        else:
+            nbConvergeSamp = len(ModelLastIter)
+        threshold = 1.87*nbConvergeSamp**(-0.50)# Power law defined from the different tests
         diverge, distance = Tools.ConvergeTest(SamplesA=ModelLastIter,SamplesB=Postbel.SAMPLES, tol=threshold)
         if stats:
             means, stds = Postbel.GetStats()
@@ -1300,7 +1317,8 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         if saveIters:
             SavePOSTBEL(Postbel,saveItersFolder + '/IPR_{}'.format(it))
         if not(diverge):
-            print('Model has converged at iter {}.'.format(it))
+            if verbose:
+                print('Model has converged at iter {}.'.format(it))
             break
         ModelLastIter = Postbel.SAMPLES
         # Preparing next iteration:
@@ -1311,7 +1329,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             PostbelAdd.SAMPLES = np.delete(PostbelAdd.SAMPLES,np.where(idxDelete),0)
             PostbelAdd.SAMPLESDATA = np.delete(PostbelAdd.SAMPLESDATA,np.where(idxDelete),0)
             PostbelAdd.nbModels = np.size(PostbelAdd.SAMPLES,axis=0)
-        Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization)
+        Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization,verbose=verbose)
     if Graphs:
         # plot the different graphs for the analysis of the results:
         pyplot.figure()
@@ -1332,6 +1350,6 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         pyplot.show(block=False)
 
     if not(statsNotReturn):
-        return Prebel, Postbel, statsReturn
+        return Prebel, Postbel, PrebelInit, statsReturn
     else:
-        return Prebel, Postbel
+        return Prebel, Postbel, PrebelInit

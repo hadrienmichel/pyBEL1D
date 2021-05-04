@@ -61,27 +61,24 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         - POSTBEL (POSTBEL): a POSTBEL class object that has been initialized.
         - NoiseLevel (list): a list of parameters for the noise model (depending on TypeMod)
             o TypeMod=="sNMR": list with 1 value for the standard deviation
-            o TypeMod=="DC": list with 2 values for the model: 
-                                - NoiseLevel[0] = a
-                                - NoiseLevel[1] = b
-                            The standard deviation is given by: a*V + b/f, where V is the 
-                            observed velocity and f the frequency
+            o TypeMod=="DC": list with a given standard deviation for all the values 
+                             of the dataset.
             o TypeMod=="General": list with a given standard deviation for all the values 
                                   of the dataset.
     
-    It returns Noise, a np.array containing the noise propagated in the CCA space.
+    It returns NoiseLevel, a np.array containing the noise propagated in the CCA space.
     '''
     import numpy as np 
     TypeMod = POSTBEL.MODPARAM.method
     dim = POSTBEL.CCA.x_scores_.shape[1] # Number of dimensions for noise propagation
     dimD = POSTBEL.PCA["Data"].n_components_
-    Noise = [0]*dim
-    if TypeMod == "sNMR": # Modeling Gaussian Noise (noise is an int)
+    # NoiseLevel = [0]*dim
+    if TypeMod == "sNMR": # Modeling Gaussian NoiseLevel (noise is an int)
         if not(isinstance(NoiseLevel,int)):
-            print('Noise must be an integer for sNMR Noise propagation! Converted to default value of 10 nV!')
+            print('NoiseLevel must be an integer for sNMR NoiseLevel propagation! Converted to default value of 10 nV!')
             NoiseLevel = 10 # in nV
         NoiseLevel *= 1e-9 # Convert to Volts
-        # Propagating Noise:
+        # Propagating NoiseLevel:
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) 
         COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
@@ -96,14 +93,18 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #    COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
         # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))#POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
-        Noise = np.diag(Cc)
+        NoiseLevel = np.diag(Cc)
     elif TypeMod == "DC":
         # if not(isinstance(NoiseLevel,list)):
-        #     print('Noise must be in the form of a list! Converted to default value!')
+        #     print('NoiseLevel must be in the form of a list! Converted to default value!')
         #     NoiseLevel = [0.05, 100]
-        # Propagating Noise:
+        # Propagating NoiseLevel:
         # PCA_Propag = True
         # if PCA_Propag:
+        if not(isinstance(NoiseLevel,list)) and not(isinstance(NoiseLevel,np.ndarray)):
+            raise Exception('NoiseLevel is not a list or a numpy array!')
+        if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
+            raise Exception('Wrong length for NoiseLevel list.')
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) #10
         COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
@@ -119,7 +120,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #     COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
         # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))
-        Noise = np.diag(Cc)
+        NoiseLevel = np.diag(Cc)
         # else:
         #     try:
         #         Dataset = POSTBEL.DATA['True']
@@ -133,9 +134,9 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #     Dataset_Noisy = np.repeat(Dataset, nbTest, axis=0) + np.multiply(np.repeat(np.random.randn(nbTest,1),Dataset.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(Dataset)[1])),Dataset.shape[0],axis=0))
         #     d_obs_h = POSTBEL.PCA['Data'].transform(Dataset_Noisy)
         #     CCA_Data = POSTBEL.CCA.transform(d_obs_h)
-        #     Noise = np.var(CCA_Data,axis=0)
+        #     NoiseLevel = np.var(CCA_Data,axis=0)
     elif TypeMod == "General":
-        if not(isinstance(NoiseLevel,list)):
+        if not(isinstance(NoiseLevel,list)) and not(isinstance(NoiseLevel,np.ndarray)):
             raise Exception('NoiseLevel is not a list!')
         if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
             raise Exception('Wrong length for NoiseLevel list.')
@@ -144,7 +145,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
-        dataNoisy = data + np.multiply(np.random.randn(nbTest,POSTBEL.FORWARD.shape[1]),np.repeat(np.asarray(NoiseLevel),nbTest,axis=0))
+        dataNoisy = data + np.multiply(np.repeat(np.random.randn(nbTest,1),data.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         err_f = scoreData-scoreDataNoisy
@@ -153,11 +154,12 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #    COV_diff[i,:,:] = np.cov(np.transpose(np.squeeze([[scoreData[i,:]],[scoreDataNoisy[i,:]]])))
         # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))#POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
-        Noise = np.diag(Cc)
+        NoiseLevel = np.diag(Cc)
     else:
         raise RuntimeWarning('No noise propagation defined for the given method!')
-    return Noise
+    return NoiseLevel
 
+nSamplesConverge = 1000
 def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
     ''' CONVERGETEST is a function that returns the mean Wasserstein distance between 
     two sets of N-dimensional datapoints.
@@ -179,6 +181,12 @@ def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
     if np.size(SamplesB,axis=1) != nbDim:
         raise Exception('SamplesA and SamplesB must have the same number of features!')
     # SamplesA is the base and SamplesB is compared to it!
+    # Subsampling 1000 models to compare each distributions (gain of time)
+    if len(SamplesA) > nSamplesConverge and len(SamplesB) > nSamplesConverge:
+        idxKeepA = np.random.choice(np.arange(len(SamplesA)), nSamplesConverge, replace=False)
+        SamplesA = SamplesA[idxKeepA,:]
+        idxKeepB = np.random.choice(np.arange(len(SamplesB)), nSamplesConverge, replace=False)
+        SamplesB = SamplesA[idxKeepB,:]
     SamplesANorm, norms = normalize(SamplesA,axis=0,return_norm=True)
     SamplesBNorm = SamplesB/norms
     # SamplesANorm = SamplesA
