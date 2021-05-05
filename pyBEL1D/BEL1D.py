@@ -1210,7 +1210,7 @@ def defaultMixing(iter) -> float:
     return 0.5
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
     nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
-    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=1.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
+    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
     verbose:bool=False):
     '''IPR (Iterative prior resampling) is a function that will compute the posterior 
     with iterative prior resampling for a given model defined via a MODELSET class object.
@@ -1272,38 +1272,14 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         if Mixing is not None:
             nbModPrebel = Prebel.nbModels
             MixingUsed = Mixing(it)
-            nbPostAdd = int(MixingUsed*nbModPrebel/Rejection) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
+            nbPostAdd = int(MixingUsed*nbModPrebel/(1-Rejection)) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
             nbSamples = max([nbModelsSample,nbPostAdd])
         else:
-            nbSamples = nbModelsSample
+            nbSamples = int(nbModelsSample/(1-Rejection))
         Postbel = POSTBEL(Prebel)
         Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
         Postbel.DataPost(Parallelization=Parallelization)
-        if Mixing is not None:
-            # From there on, we need:
-            #   - the Postbel object with nbModelsSample samples inside
-            #   - the Postbel object with nbPostAdd samples inside
-            # if nbPostAdd < nbModelsSample:
-            #   PostbelAdd = sampled down Postbel
-            # else:
-            #   PostbelAdd = Postbel
-            #   Postbel = sampled down postbel
-            # Convergence on Postbel (with nbModelsSample models inside)
-            PostbelAdd = deepcopy(Postbel)
-            import random
-            if (nbPostAdd < nbModelsSample) and (PostbelAdd.nbSamples > nbPostAdd):
-                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbPostAdd)
-                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
-                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
-                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
-            elif (nbModelsSample < nbPostAdd) and (PostbelAdd.nbSamples > nbModelsSample):
-                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbModelsSample)
-                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
-                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
-                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
-        else:
-            PostbelAdd = Postbel
         # Testing for convergence (5% probability of false positive):
         if len(ModelLastIter) > nSamplesConverge:
             nbConvergeSamp = nSamplesConverge
@@ -1321,14 +1297,38 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                 print('Model has converged at iter {}.'.format(it))
             break
         ModelLastIter = Postbel.SAMPLES
-        # Preparing next iteration:
-        if Rejection < 1.0:
+        # If not converged yet --> apply transforms to the sampled set for mixing and rejection
+        PostbelAdd = deepcopy(Postbel)
+        if Rejection > 0:
             RMSE = np.sqrt(np.square(np.subtract(Dataset,PostbelAdd.SAMPLESDATA)).mean(axis=-1))
-            RMSE_max = np.quantile(RMSE,Rejection) # We reject the 10% worst fit
+            RMSE_max = np.quantile(RMSE,1-Rejection) # We reject the x% worst fit
             idxDelete = np.greater_equal(RMSE,RMSE_max)
             PostbelAdd.SAMPLES = np.delete(PostbelAdd.SAMPLES,np.where(idxDelete),0)
             PostbelAdd.SAMPLESDATA = np.delete(PostbelAdd.SAMPLESDATA,np.where(idxDelete),0)
             PostbelAdd.nbModels = np.size(PostbelAdd.SAMPLES,axis=0)
+            nbPostAdd = int(nbPostAdd*(1-Rejection)) # We update the number of samples needed (for mixing)
+        if Mixing is not None:
+            # From there on, we need:
+            #   - the Postbel object with nbModelsSample samples inside
+            #   - the Postbel object with nbPostAdd samples inside
+            # if nbPostAdd < nbModelsSample:
+            #   PostbelAdd = sampled down Postbel
+            # else:
+            #   PostbelAdd = Postbel
+            #   Postbel = sampled down postbel
+            # Convergence on Postbel (with nbModelsSample models inside)
+            import random
+            if (nbPostAdd < nbModelsSample) and (PostbelAdd.nbSamples > nbPostAdd):
+                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbPostAdd)
+                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
+                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
+                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
+            elif (nbModelsSample < nbPostAdd) and (PostbelAdd.nbSamples > nbModelsSample):
+                idxKeep = random.sample(range(PostbelAdd.nbSamples), nbModelsSample)
+                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
+                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
+                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
+        # Preparing next iteration:
         Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization,verbose=verbose)
     if Graphs:
         # plot the different graphs for the analysis of the results:

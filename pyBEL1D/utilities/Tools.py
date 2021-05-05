@@ -186,7 +186,7 @@ def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
         idxKeepA = np.random.choice(np.arange(len(SamplesA)), nSamplesConverge, replace=False)
         SamplesA = SamplesA[idxKeepA,:]
         idxKeepB = np.random.choice(np.arange(len(SamplesB)), nSamplesConverge, replace=False)
-        SamplesB = SamplesA[idxKeepB,:]
+        SamplesB = SamplesB[idxKeepB,:]
     SamplesANorm, norms = normalize(SamplesA,axis=0,return_norm=True)
     SamplesBNorm = SamplesB/norms
     # SamplesANorm = SamplesA

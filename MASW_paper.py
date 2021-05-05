@@ -25,7 +25,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     from pysurf96 import surf96
     from scipy import stats
 
-    Graphs = True
+    Graphs = False
 
     # Define the model:
     TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])#Thickness and Vs only
@@ -87,9 +87,9 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     forward = {"Fun":forwardFun,"Axis":Periods}
     cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
     # Initialize the model parameters for BEL1D
-    nbModelsBase = 1000
+    nbModelsBase = 5000
     ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
-    Test1=True
+    Test1=False
     if Test1:
         stats = True
         def MixingFunc(iter:int) -> float:
@@ -144,52 +144,76 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #   Rejection
     # For each case: testing variations whithin given range + repeat 100 times -> analysis of only the statistics
     ###################
-    Discussion = False
+    Discussion = True
     pool = pp.ProcessPool(mp.cpu_count()-2)# Create the parallel pool with at most the number of dimensions
     if Discussion:
         ## 1) nbModelsBase=nbModelsSample variation -> no mixing 
         nbTest, nbRepeat = (10, 100)
-        valTest = np.logspace(2,5,nbTest,dtype=np.int)
-        # Initialize the lists with the values
-        print('\n\nNbVal Tests\n\n')
-        nbModels = []
-        nbIter = []
-        cpuTime = []
-        meansEnd = []
-        stdsEnd = []
-        distEnd = []
-        TrueModels = []
-        for nbModelsBase in valTest:
-            for repeat in range(nbRepeat):
-                print('Test {} on {} (valTest = {})'.format(repeat,nbRepeat,nbModelsBase))
-                while True:
-                    TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
-                    try:
-                        Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
-                        if np.greater_equal(np.diff(Dataset),0).all():
-                            break
-                        elif np.greater_equal(-np.diff(Dataset),0).all():
-                            break
-                    except:
-                        pass
-                try:
-                    _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=None,Graphs=False,Parallelization=[True,pool])
-                    # Processing of the results:
-                    nbIter.append(len(stats))
-                    cpuTime.append(stats[-1].timing)
-                    meansEnd.append(stats[-1].means)
-                    stdsEnd.append(stats[-1].stds)
-                    distEnd.append(stats[-1].distance)
-                    TrueModels.append(TrueModelTest[0,:])
-                except:
-                    nbIter.append(np.nan)
-                    cpuTime.append(np.nan)
-                    distEnd.append(np.nan)
-                    stdsNaN = TrueModelTest[0,:]
-                    stdsNaN[:] = np.nan
-                    stdsEnd.append(stdsNaN)
-                    meansEnd.append(stdsNaN)
-                    print('Did not finish!')
+        valTestModels = np.logspace(2,5,nbTest,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
+        valTestMixing = np.linspace(0.1,2.0,nbTest-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
+        valTestMixing = np.append(valTestMixing,None)
+        valTestRejection = np.linspace(0,0.9,nbTest) # Tests between 0 and 0.9 for the probability of rejection (only keeping the best fit)
+        # Initialize the lists with the values:
+        TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
+        LenModels = np.shape(TrueModelTest)[1]
+        print('\n\nBeginning testings . . . \n\n')
+        nbIter = np.empty((nbTest, nbTest, nbTest, nbRepeat))
+        cpuTime = np.empty((nbTest, nbTest, nbTest, nbRepeat))
+        meansEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
+        stdsEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
+        distEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat))
+        TrueModels = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
+        k = 0
+        for idxNbModels, nbModelsBase in enumerate(valTestModels):
+            for idxMixing, MixingParam in enumerate(valTestMixing):
+                for idxReject, Rejection in enumerate(valTestRejection):
+                    for repeat in range(nbRepeat):
+                        k += 1
+                        print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTest**3*nbRepeat,nbModelsBase, MixingParam, Rejection))
+                        thresholdValue = 0.2
+                        while True:
+                            TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
+                            try:
+                                Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
+                                VariabilityMax = np.max(np.diff(Dataset))
+                                if VariabilityMax > thresholdValue:
+                                    pass
+                                else:
+                                    break
+                            except:
+                                pass
+                        if MixingParam is not None:
+                            def MixingFuncTest(iter:int) -> float:
+                                return MixingParam # Always keeping the same proportion of models as the initial prior
+                        else:
+                            MixingFuncTest = None
+                        try:
+                            _, _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Rejection=Rejection,Mixing=MixingFuncTest,Graphs=False,Parallelization=[True,pool])
+                            # Processing of the results:
+                            nbIter[idxNbModels,idxMixing,idxReject,repeat] = len(stats)
+                            cpuTime[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].timing
+                            meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].means
+                            stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].stds
+                            distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
+                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                            print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
+                        except:
+                            nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                            cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                            stdsNaN = TrueModelTest[0,:]
+                            stdsNaN[:] = np.nan
+                            meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
+                            stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
+                            distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                            print('Did not finish!')
+        pool.terminate()
+        np.save('./testingNbModels/nbIter',nbIter)
+        np.save('./testingNbModels/cpuTime',cpuTime)
+        np.save('./testingNbModels/meansEnd',meansEnd)
+        np.save('./testingNbModels/stdsEnd',stdsEnd)
+        np.save('./testingNbModels/distEnd',distEnd)
+        np.save('./testingNbModels/TrueModels',TrueModels)
         if Graphs:
             # CPU time evolution
             pyplot.figure()
@@ -246,13 +270,6 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
                 ax.set_ylabel('Standard deviation value obtained')
                 ax.set_xlabel('Number of models [/]')
-        pool.terminate()
-        np.save('./testingNbModels/nbIter',nbIter)
-        np.save('./testingNbModels/cpuTime',cpuTime)
-        np.save('./testingNbModels/meansEnd',meansEnd)
-        np.save('./testingNbModels/stdsEnd',stdsEnd)
-        np.save('./testingNbModels/distEnd',distEnd)
-        np.save('./testingNbModels/TrueModels',TrueModels)
         def multipage(filename, figs=None, dpi=200):
             from matplotlib.backends.backend_pdf import PdfPages
             import matplotlib.pyplot as plt
@@ -264,208 +281,208 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             pp.close()
         multipage('./testingNbModels/Figures_NbModels.pdf')
         pyplot.show(block=True)
-"""         ## 2) Mixing:
-        print('\n\nMixing Tests\n\n')
-        valTest = np.linspace(0.1,2.0,nbTest)
-        nbModelsBase = 1000
-        nbModels = []
-        nbIter = []
-        cpuTime = []
-        meansEnd = []
-        stdsEnd = []
-        distEnd = []
-        TrueModels = []
-        for mixingParam in valTest:
-            def MixingFuncTest(iter:int) -> float:
-                return mixingParam # Always keeping the same proportion of models as the initial prior
-            for repeat in range(nbRepeat):
-                print('Test {} on {} (valTest = {})'.format(repeat,nbRepeat,mixingParam))
-                while True:
-                    TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
-                    try:
-                        Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
-                        if np.greater_equal(np.diff(Dataset),0).all():
-                            break
-                        elif np.greater_equal(-np.diff(Dataset),0).all():
-                            break
-                    except:
-                        pass
-                try:
-                    _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFuncTest,Graphs=False,Parallelization=[True,pool])
-                    # Processing of the results:
-                    nbIter.append(len(stats))
-                    cpuTime.append(stats[-1].timing)
-                    meansEnd.append(stats[-1].means)
-                    stdsEnd.append(stats[-1].stds)
-                    distEnd.append(stats[-1].distance)
-                    TrueModels.append(TrueModelTest[0,:])
-                except:
-                    nbIter.append(np.nan)
-                    cpuTime.append(np.nan)
-                    distEnd.append(np.nan)
-                    stdsNaN = TrueModelTest[0,:]
-                    stdsNaN[:] = np.nan
-                    stdsEnd.append(stdsNaN)
-                    meansEnd.append(stdsNaN)
-                    print('Did not finish!')
-        if Graphs:
-            # CPU time evolution
-            pyplot.figure()
-            means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Mixing ratio [/]')
-            ax.set_ylabel('CPU time [sec]')
-            # Number of iterations
-            pyplot.figure()
-            means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Mixing ratio [/]')
-            ax.set_ylabel('Number of iterations [/]')
-            # Convergence distance
-            pyplot.figure()
-            means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Mixing ratio [/]')
-            ax.set_ylabel('Convergence distance [/]')
-            # Converged distributions
-            nbParam = len(ModelSynthetic.prior)
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Mean value obtained')
-                ax.set_xlabel('Mixing ratio [/]')
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Standard deviation value obtained')
-                ax.set_xlabel('Mixing ratio [/]')
-            pyplot.show(block=False)
-        ## 3) Rejection
-        print('\n\nRejection Tests\n\n')
-        valTest = np.logspace(-2,0,nbTest)
-        nbModelsBase = 1000
-        nbModels = []
-        nbIter = []
-        cpuTime = []
-        meansEnd = []
-        stdsEnd = []
-        distEnd = []
-        TrueModels = []
-        for rejectTest in valTest:
-            for repeat in range(nbRepeat):
-                print('Test {} on {} (valTest = {})'.format(repeat,nbRepeat,rejectTest))
-                while True:
-                    TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
-                    try:
-                        Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
-                        if np.greater_equal(np.diff(Dataset),0).all():
-                            break
-                        elif np.greater_equal(-np.diff(Dataset),0).all():
-                            break
-                    except:
-                        pass
-                try:
-                    _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=None,Graphs=False,Rejection=rejectTest,Parallelization=[True,pool])
-                    # Processing of the results:
-                    nbIter.append(len(stats))
-                    cpuTime.append(stats[-1].timing)
-                    meansEnd.append(stats[-1].means)
-                    stdsEnd.append(stats[-1].stds)
-                    distEnd.append(stats[-1].distance)
-                    TrueModels.append(TrueModelTest[0,:])
-                except:
-                    nbIter.append(np.nan)
-                    cpuTime.append(np.nan)
-                    distEnd.append(np.nan)
-                    stdsNaN = TrueModelTest[0,:]
-                    stdsNaN[:] = np.nan
-                    stdsEnd.append(stdsNaN)
-                    meansEnd.append(stdsNaN)
-                    print('Did not finish!')
-        if Graphs:
-            # CPU time evolution
-            pyplot.figure()
-            means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Rejection [/]')
-            ax.set_ylabel('CPU time [sec]')
-            # Number of iterations
-            pyplot.figure()
-            means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Rejection [/]')
-            ax.set_ylabel('Number of iterations [/]')
-            # Convergence distance
-            pyplot.figure()
-            means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Rejection [/]')
-            ax.set_ylabel('Convergence distance [/]')
-            # Converged distributions
-            nbParam = len(ModelSynthetic.prior)
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Mean value obtained')
-                ax.set_xlabel('Rejection [/]')
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Standard deviation value obtained')
-                ax.set_xlabel('Rejection [/]')
-            pyplot.show(block=False) """
-            # Blocking execution to display graphs
-            # pyplot.show()
+        # ## 2) Mixing:
+        # print('\n\nMixing Tests\n\n')
+        # valTest = np.linspace(0.1,2.0,nbTest)
+        # nbModelsBase = 1000
+        # nbModels = []
+        # nbIter = []
+        # cpuTime = []
+        # meansEnd = []
+        # stdsEnd = []
+        # distEnd = []
+        # TrueModels = []
+        # for mixingParam in valTest:
+        #     def MixingFuncTest(iter:int) -> float:
+        #         return mixingParam # Always keeping the same proportion of models as the initial prior
+        #     for repeat in range(nbRepeat):
+        #         print('Test {} on {} (valTest = {})'.format(repeat,nbRepeat,mixingParam))
+        #         while True:
+        #             TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
+        #             try:
+        #                 Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
+        #                 if np.greater_equal(np.diff(Dataset),0).all():
+        #                     break
+        #                 elif np.greater_equal(-np.diff(Dataset),0).all():
+        #                     break
+        #             except:
+        #                 pass
+        #         try:
+        #             _, _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFuncTest,Graphs=False,Parallelization=[True,pool])
+        #             # Processing of the results:
+        #             nbIter.append(len(stats))
+        #             cpuTime.append(stats[-1].timing)
+        #             meansEnd.append(stats[-1].means)
+        #             stdsEnd.append(stats[-1].stds)
+        #             distEnd.append(stats[-1].distance)
+        #             TrueModels.append(TrueModelTest[0,:])
+        #         except:
+        #             nbIter.append(np.nan)
+        #             cpuTime.append(np.nan)
+        #             distEnd.append(np.nan)
+        #             stdsNaN = TrueModelTest[0,:]
+        #             stdsNaN[:] = np.nan
+        #             stdsEnd.append(stdsNaN)
+        #             meansEnd.append(stdsNaN)
+        #             print('Did not finish!')
+        # if Graphs:
+        #     # CPU time evolution
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Mixing ratio [/]')
+        #     ax.set_ylabel('CPU time [sec]')
+        #     # Number of iterations
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Mixing ratio [/]')
+        #     ax.set_ylabel('Number of iterations [/]')
+        #     # Convergence distance
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Mixing ratio [/]')
+        #     ax.set_ylabel('Convergence distance [/]')
+        #     # Converged distributions
+        #     nbParam = len(ModelSynthetic.prior)
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Mean value obtained')
+        #         ax.set_xlabel('Mixing ratio [/]')
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Standard deviation value obtained')
+        #         ax.set_xlabel('Mixing ratio [/]')
+        #     pyplot.show(block=False)
+        # ## 3) Rejection
+        # print('\n\nRejection Tests\n\n')
+        # valTest = np.logspace(-2,0,nbTest)
+        # nbModelsBase = 1000
+        # nbModels = []
+        # nbIter = []
+        # cpuTime = []
+        # meansEnd = []
+        # stdsEnd = []
+        # distEnd = []
+        # TrueModels = []
+        # for rejectTest in valTest:
+        #     for repeat in range(nbRepeat):
+        #         print('Test {} on {} (valTest = {})'.format(repeat,nbRepeat,rejectTest))
+        #         while True:
+        #             TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
+        #             try:
+        #                 Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
+        #                 if np.greater_equal(np.diff(Dataset),0).all():
+        #                     break
+        #                 elif np.greater_equal(-np.diff(Dataset),0).all():
+        #                     break
+        #             except:
+        #                 pass
+        #         try:
+        #             _, _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=None,Graphs=False,Rejection=rejectTest,Parallelization=[True,pool])
+        #             # Processing of the results:
+        #             nbIter.append(len(stats))
+        #             cpuTime.append(stats[-1].timing)
+        #             meansEnd.append(stats[-1].means)
+        #             stdsEnd.append(stats[-1].stds)
+        #             distEnd.append(stats[-1].distance)
+        #             TrueModels.append(TrueModelTest[0,:])
+        #         except:
+        #             nbIter.append(np.nan)
+        #             cpuTime.append(np.nan)
+        #             distEnd.append(np.nan)
+        #             stdsNaN = TrueModelTest[0,:]
+        #             stdsNaN[:] = np.nan
+        #             stdsEnd.append(stdsNaN)
+        #             meansEnd.append(stdsNaN)
+        #             print('Did not finish!')
+        # if Graphs:
+        #     # CPU time evolution
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Rejection [/]')
+        #     ax.set_ylabel('CPU time [sec]')
+        #     # Number of iterations
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Rejection [/]')
+        #     ax.set_ylabel('Number of iterations [/]')
+        #     # Convergence distance
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Rejection [/]')
+        #     ax.set_ylabel('Convergence distance [/]')
+        #     # Converged distributions
+        #     nbParam = len(ModelSynthetic.prior)
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Mean value obtained')
+        #         ax.set_xlabel('Rejection [/]')
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Standard deviation value obtained')
+        #         ax.set_xlabel('Rejection [/]')
+        #     pyplot.show(block=False)
+        #     # Blocking execution to display graphs
+        #     # pyplot.show()
         
         
     # Falsification of the prior:
