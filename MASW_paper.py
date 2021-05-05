@@ -87,15 +87,15 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     forward = {"Fun":forwardFun,"Axis":Periods}
     cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
     # Initialize the model parameters for BEL1D
-    nbModelsBase = 5000
+    nbModelsBase = 100
     ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
     Test1=False
     if Test1:
         stats = True
         def MixingFunc(iter:int) -> float:
-            return 1/(iter+1) # Always keeping the same proportion of models as the initial prior
+            return 0.1# 1/(iter+1) # Always keeping the same proportion of models as the initial prior
         if stats:
-            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Mixing=MixingFunc,Graphs=Graphs, verbose=True)
+            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Rejection=0.1, Mixing=MixingFunc,Graphs=Graphs, verbose=True)
         else:
             Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs)
         if Graphs:
@@ -145,7 +145,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     # For each case: testing variations whithin given range + repeat 100 times -> analysis of only the statistics
     ###################
     Discussion = True
-    pool = pp.ProcessPool(mp.cpu_count()-2)# Create the parallel pool with at most the number of dimensions
+    pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
     if Discussion:
         ## 1) nbModelsBase=nbModelsSample variation -> no mixing 
         nbTest, nbRepeat = (10, 100)
@@ -197,7 +197,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                             distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
                             TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
                             print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
-                        except:
+                        except Exception as e:
+                            print(e)
                             nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
                             cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
                             stdsNaN = TrueModelTest[0,:]

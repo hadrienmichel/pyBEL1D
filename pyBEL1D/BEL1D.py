@@ -1273,7 +1273,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             nbModPrebel = Prebel.nbModels
             MixingUsed = Mixing(it)
             nbPostAdd = int(MixingUsed*nbModPrebel/(1-Rejection)) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
-            nbSamples = max([nbModelsSample,nbPostAdd])
+            nbSamples = max([int(nbModelsSample/(1-Rejection)),nbPostAdd])
         else:
             nbSamples = int(nbModelsSample/(1-Rejection))
         Postbel = POSTBEL(Prebel)
@@ -1305,7 +1305,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             idxDelete = np.greater_equal(RMSE,RMSE_max)
             PostbelAdd.SAMPLES = np.delete(PostbelAdd.SAMPLES,np.where(idxDelete),0)
             PostbelAdd.SAMPLESDATA = np.delete(PostbelAdd.SAMPLESDATA,np.where(idxDelete),0)
-            PostbelAdd.nbModels = np.size(PostbelAdd.SAMPLES,axis=0)
+            PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
             nbPostAdd = int(nbPostAdd*(1-Rejection)) # We update the number of samples needed (for mixing)
         if Mixing is not None:
             # From there on, we need:
