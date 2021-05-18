@@ -144,32 +144,45 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #   Rejection
     # For each case: testing variations whithin given range + repeat 100 times -> analysis of only the statistics
     ###################
+    #from wrapt_timeout_decorator import timeout
+    timeMax = 60*60 #Number of seconds before timeout
+    #@timeout(timeMax)
+    def testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,ParallelParam):
+        from pyBEL1D import BEL1D
+        import numpy as np
+        try:
+             _, _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Rejection=Rejection,Mixing=MixingFuncTest,Graphs=False,Parallelization=ParallelParam)
+        except Exception as e:
+            print(e)
+            stats = None
+        return stats
+
     Discussion = True
     pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
     if Discussion:
         ## 1) nbModelsBase=nbModelsSample variation -> no mixing 
-        nbTest, nbRepeat = (10, 100)
-        valTestModels = np.logspace(2,5,nbTest,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
-        valTestMixing = np.linspace(0.1,2.0,nbTest-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
+        nbTestN, nbTestM, nbTestR, nbRepeat = (10, 5, 5, 100)
+        valTestModels = np.logspace(2,5,nbTestN,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
+        valTestMixing = np.linspace(0.1,2.0,nbTestM-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
         valTestMixing = np.append(valTestMixing,None)
-        valTestRejection = np.linspace(0,0.9,nbTest) # Tests between 0 and 0.9 for the probability of rejection (only keeping the best fit)
+        valTestRejection = np.linspace(0,0.9,nbTestR) # Tests between 0 and 0.9 for the probability of rejection (only keeping the best fit)
         # Initialize the lists with the values:
         TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
         LenModels = np.shape(TrueModelTest)[1]
         print('\n\nBeginning testings . . . \n\n')
-        nbIter = np.empty((nbTest, nbTest, nbTest, nbRepeat))
-        cpuTime = np.empty((nbTest, nbTest, nbTest, nbRepeat))
-        meansEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
-        stdsEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
-        distEnd = np.empty((nbTest, nbTest, nbTest, nbRepeat))
-        TrueModels = np.empty((nbTest, nbTest, nbTest, nbRepeat, LenModels))
+        nbIter = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
+        cpuTime = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
+        meansEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
+        stdsEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
+        distEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
+        TrueModels = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
         k = 0
         for idxNbModels, nbModelsBase in enumerate(valTestModels):
             for idxMixing, MixingParam in enumerate(valTestMixing):
                 for idxReject, Rejection in enumerate(valTestRejection):
                     for repeat in range(nbRepeat):
                         k += 1
-                        print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTest**3*nbRepeat,nbModelsBase, MixingParam, Rejection))
+                        print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTestN*nbTestM*nbTestR*nbRepeat,nbModelsBase, MixingParam, Rejection))
                         thresholdValue = 0.2
                         while True:
                             TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
@@ -188,15 +201,26 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                         else:
                             MixingFuncTest = None
                         try:
-                            _, _, _, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True,Rejection=Rejection,Mixing=MixingFuncTest,Graphs=False,Parallelization=[True,pool])
+                            stats = testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,[True, pool])#[True,pool])
                             # Processing of the results:
-                            nbIter[idxNbModels,idxMixing,idxReject,repeat] = len(stats)
-                            cpuTime[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].timing
-                            meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].means
-                            stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].stds
-                            distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
-                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
-                            print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
+                            if stats is not None:
+                                nbIter[idxNbModels,idxMixing,idxReject,repeat] = len(stats)
+                                cpuTime[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].timing
+                                meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].means
+                                stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].stds
+                                distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
+                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                                print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
+                            else:
+                                nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                                cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                                stdsNaN = TrueModelTest[0,:]
+                                stdsNaN[:] = np.nan
+                                meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
+                                stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
+                                distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                                print('Did not finish! (ERROR)')
                         except Exception as e:
                             print(e)
                             nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
@@ -207,14 +231,23 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                             stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
                             distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
                             TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
-                            print('Did not finish!')
-        pool.terminate()
+                            print('Did not finish! (TIMEOUT after 1 hour)')
+        # pool.terminate()
         np.save('./testingNbModels/nbIter',nbIter)
         np.save('./testingNbModels/cpuTime',cpuTime)
         np.save('./testingNbModels/meansEnd',meansEnd)
         np.save('./testingNbModels/stdsEnd',stdsEnd)
         np.save('./testingNbModels/distEnd',distEnd)
         np.save('./testingNbModels/TrueModels',TrueModels)
+        def multipage(filename, figs=None, dpi=200):
+            from matplotlib.backends.backend_pdf import PdfPages
+            import matplotlib.pyplot as plt
+            pp = PdfPages(filename)
+            if figs is None:
+                figs = [plt.figure(n) for n in plt.get_fignums()]
+            for fig in figs:
+                fig.savefig(pp, format='pdf')
+            pp.close()
         if Graphs:
             # CPU time evolution
             pyplot.figure()
@@ -271,17 +304,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
                 ax.set_ylabel('Standard deviation value obtained')
                 ax.set_xlabel('Number of models [/]')
-        def multipage(filename, figs=None, dpi=200):
-            from matplotlib.backends.backend_pdf import PdfPages
-            import matplotlib.pyplot as plt
-            pp = PdfPages(filename)
-            if figs is None:
-                figs = [plt.figure(n) for n in plt.get_fignums()]
-            for fig in figs:
-                fig.savefig(pp, format='pdf')
-            pp.close()
-        multipage('./testingNbModels/Figures_NbModels.pdf')
-        pyplot.show(block=True)
+            multipage('./testingNbModels/Figures_NbModels.pdf')
+            pyplot.show(block=True)
         # ## 2) Mixing:
         # print('\n\nMixing Tests\n\n')
         # valTest = np.linspace(0.1,2.0,nbTest)

@@ -721,6 +721,7 @@ class POSTBEL:
             Samples = np.zeros((nbSamples,nbParam))
             achieved = False
             modelsOK = 0
+            nbTestsMax = nbSamples*10 # At max, we could be at 0.1 sample every loop.
             while not(achieved):
                 samples_CCA = self.KDE.SampleKDE(nbSample=(nbSamples-modelsOK))
                 # Back transform models to original space:
@@ -742,6 +743,9 @@ class POSTBEL:
                 Samples = tmp
                 if modelsOK == nbSamples:
                     achieved = True
+                nbTestsMax -= 1
+                if nbTestsMax < 0:
+                    raise Exception('Impossible to sample models in the current prior under reasonable timings!')
             self.SAMPLES = Samples
 
     def DataPost(self, Parallelization=[False,None],verbose:bool=False):
@@ -1241,6 +1245,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                              default value is 0.5 whatever the iteration.
         - Graphs (bool=False): Show diagnistic graphs (True) or not (False)
     '''
+    import numpy as np
     from .utilities.Tools import nSamplesConverge
     from copy import deepcopy
     if nbModelsSample is None:
@@ -1276,6 +1281,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             nbSamples = max([int(nbModelsSample/(1-Rejection)),nbPostAdd])
         else:
             nbSamples = int(nbModelsSample/(1-Rejection))
+            nbPostAdd = nbSamples
         Postbel = POSTBEL(Prebel)
         Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):

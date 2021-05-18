@@ -167,6 +167,19 @@ class KDE:
             raise Exception('XTrue is not compatible with the dimensions given.')
         if XTrue is None and NoiseError is not None:
             NoiseError is None
+        # Throwing error if the point is too close to the limits of the domain for one dimension (would not work)
+        if XTrue is not None:
+            percentileLimit = 0.01
+            if NoiseError is None:
+                for i in range(len(XTrue)):
+                    dataset = self.datasets[i]
+                    if XTrue[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i] > np.quantile(dataset[:,0],1-percentileLimit):
+                        raise Exception('The dataset is outside of the distribution in the reduced space for dimension {}'.format(i+1))
+            else:
+                for i in range(len(XTrue)):
+                    dataset = self.datasets[i]
+                    if XTrue[i]-2*NoiseError[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i]+2*NoiseError[i] > np.quantile(dataset[:,0],1-percentileLimit):
+                        raise Exception('The dataset is outside of the distribution in the reduced space for dimension {}. Even with noise taken into account!'.format(i+1))
         if Parallelization[0]:
             FuncPara = partial(ParallelKernel)
             # Parallel computing:
