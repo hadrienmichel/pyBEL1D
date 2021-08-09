@@ -3,6 +3,7 @@ pyBEL1D/utilities/__pycache__/
 pyBEL1D/__pycache__/
 Arsalan/
 testingRejection/
+testingNbModels/
 *.ipynb
 *.perf
 *.npz
@@ -18,3 +19,6 @@ __pycache__/
 *.png
 Testings*
 !.research/*
+./testing*
+Analysis.py
+TestFlo.py

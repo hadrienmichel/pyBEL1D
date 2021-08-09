@@ -583,6 +583,68 @@ class PREBEL:
         #     pool.terminate()
         return PrebelNew
     
+    def runMCMC(self, Dataset=None, nbSamples=50000, nbChains=10, NoiseModel=None):
+        if Dataset is None:
+            raise Exception('No Dataset given to compute likelihood')
+        if len(Dataset) != self.FORWARD.shape[1]:
+            raise Exception('Dataset given not compatible with forward model')
+        if NoiseModel is None:
+            raise Exception('No noise model provided. Impossible to compute the likelihood')
+        if len(NoiseModel) != len(Dataset):
+            raise Exception('NoiseModel should have the same size as the dataset')
+        timeIn = time.time()
+        nbParam = len(self.MODPARAM.prior)
+        accepted = np.zeros((nbChains, nbSamples, nbParam))
+        for j in range(nbChains):
+            rejectedNb = 0
+            i = 0
+            LikelihoodLast = 1e-50 # First sample most likely accepted
+            Covariance = 0.01*np.cov(self.MODELS.T) # Compute the initial covariance from the prior distribution
+            passed = False
+            while i < nbSamples:
+                if i == 0:
+                    ## Sampling a random model from the prior distribution
+                    sampleCurr = Tools.Sampling(self.PRIOR,self.CONDITIONS,nbModels=1)
+                else:
+                    ## Random change to the sampled model:
+                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((nbParam,)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
+                ## Computing the likelihood from a data misfit:
+                if self.MODPARAM.cond(sampleCurr):
+                    try:
+                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
+                        DataDiff = Dataset - SynData
+                        FieldError = NoiseModel
+                        A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
+                        B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
+                        Likelihood = np.prod(np.multiply(A, B))
+                    except:
+                        rejectedNb += 1
+                        continue
+                else:
+                    rejectedNb += 1
+                    continue
+                ## Sampling (or not) the model:
+                ratio = Likelihood/LikelihoodLast
+                if ratio > np.random.uniform(0,1):
+                    sampleLast = sampleCurr
+                    accepted[j,i,:] = sampleCurr[0,:]
+                    i += 1
+                    passed = False
+                else:
+                    rejectedNb += 1
+                if np.mod(i,50) == 0 and not(passed):
+                    # LikelihoodLast = 1e-50
+                    AcceptanceRatio = i/(rejectedNb+i)
+                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                        Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
+                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                        Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
+                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
+                    passed = True
+                LikelihoodLast = Likelihood
+        print(f'MCMC on PREBEL executed in {time.time()-timeIn} seconds.')
+        return np.asarray(accepted)
+    
     def ShowPreModels(self,TrueModel=None):
         '''SHOWPREMODELS is a function that displays the models sampled from the prior model space.
 
@@ -747,6 +809,73 @@ class POSTBEL:
                 if nbTestsMax < 0:
                     raise Exception('Impossible to sample models in the current prior under reasonable timings!')
             self.SAMPLES = Samples
+    
+    def runMCMC(self, nbSamples=10000, nbChains=10, NoiseModel=None):
+        if NoiseModel is None:
+            raise Exception('No noise model provided. Impossible to compute the likelihood')
+        if len(NoiseModel) != len(self.DATA['True'][0,:]):
+            raise Exception('NoiseModel should have the same size as the dataset')
+        timeIn = time.time()
+        nbParam = len(self.MODPARAM.prior)
+        accepted = np.zeros((nbChains, nbSamples, nbParam))
+        for j in range(nbChains):
+            rejectedNb = 0
+            i = 0
+            LikelihoodLast = 1e-50 # First sample most likely accepted
+            Covariance = 0.01*np.cov(self.SAMPLES.T) # Compute the initial covariance from the prior distribution
+            passed = False
+            while i < nbSamples:
+                if i == 0:
+                    ## Sampling a random model from the posterior distribution
+                    samples_CCA = self.KDE.SampleKDE(nbSample=1)
+                    # Back transform models to original space:
+                    samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
+                    samples_PCA *= self.CCA.y_std_
+                    samples_PCA += self.CCA.y_mean_
+                    # samples_PCA = self.CCA.inverse_transform(samples_CCA)
+                    if self.PCA['Model'] is None:
+                        sampleCurr = samples_PCA 
+                    else:
+                        sampleCurr = self.PCA['Model'].inverse_transform(samples_PCA)
+                else:
+                    ## Random change to the sampled model:
+                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((len(self.MODPARAM.prior),)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
+                ## Computing the likelihood from a data misfit:
+                if self.MODPARAM.cond(sampleCurr):
+                    try:
+                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
+                        DataDiff = self.DATA['True'] - SynData
+                        FieldError = NoiseModel
+                        A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
+                        B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
+                        Likelihood = np.prod(np.multiply(A, B))
+                    except:
+                        rejectedNb += 1
+                        continue
+                else:
+                    rejectedNb += 1
+                    continue
+                ## Sampling (or not) the model:
+                ratio = Likelihood/LikelihoodLast
+                if ratio > np.random.uniform(0,1):
+                    sampleLast = sampleCurr
+                    accepted[j,i,:] = sampleCurr[0,:]
+                    i += 1
+                    passed = False
+                else:
+                    rejectedNb += 1
+                if np.mod(i,50) == 0 and not(passed):
+                    # LikelihoodLast = 1e-50
+                    AcceptanceRatio = i/(rejectedNb+i)
+                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                        Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
+                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                        Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
+                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
+                    passed = True
+                LikelihoodLast = Likelihood
+        print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
+        return np.asarray(accepted)
 
     def DataPost(self, Parallelization=[False,None],verbose:bool=False):
         '''DATAPOST is a function that computes the forward model for all the 
@@ -1032,7 +1161,7 @@ class POSTBEL:
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
-            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
+            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
 
 
         fig.suptitle("Posterior model visualization",fontsize=16)
@@ -1121,6 +1250,7 @@ class StatsResults:
         file_write = open(Filename+'.stats','wb')
         dill.dump(self,file_write)
         file_write.close()
+
 def loadStats(Filename):
     import dill
     file_read = open(Filename,'rb')
@@ -1212,6 +1342,7 @@ def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
 from typing import Callable
 def defaultMixing(iter) -> float:
     return 0.5
+    
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
     nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
     saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
@@ -1285,6 +1416,9 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         Postbel = POSTBEL(Prebel)
         Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
+        if Graphs:
+            if it == 0:
+                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
         Postbel.DataPost(Parallelization=Parallelization)
         # Testing for convergence (5% probability of false positive):
         if len(ModelLastIter) > nSamplesConverge:
@@ -1301,6 +1435,10 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         if not(diverge):
             if verbose:
                 print('Model has converged at iter {}.'.format(it))
+            if Graphs:
+                NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate)
+                Postbel.KDE.KernelDensity(NoiseError=NoiseToLastPrebel, RemoveOutlier=True)#,Parallelization=Parallelization)
+                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
             break
         ModelLastIter = Postbel.SAMPLES
         # If not converged yet --> apply transforms to the sampled set for mixing and rejection
@@ -1343,6 +1481,8 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         ax = pyplot.gca()
         ax.set_ylabel('Cumulative CPU time [sec]')
         ax.set_xlabel('Iteration nb.')
+        if verbose:
+            print('Computation done in {} seconds!'.format(statsReturn[-1].timing))
         nbParam = len(Prebel.MODPARAM.prior)
         for j in range(nbParam):
             pyplot.figure()

@@ -178,7 +178,7 @@ class KDE:
             else:
                 for i in range(len(XTrue)):
                     dataset = self.datasets[i]
-                    if XTrue[i]-2*NoiseError[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i]+2*NoiseError[i] > np.quantile(dataset[:,0],1-percentileLimit):
+                    if XTrue[i]+2*NoiseError[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i]-2*NoiseError[i] > np.quantile(dataset[:,0],1-percentileLimit):
                         raise Exception('The dataset is outside of the distribution in the reduced space for dimension {}. Even with noise taken into account!'.format(i+1))
         if Parallelization[0]:
             FuncPara = partial(ParallelKernel)

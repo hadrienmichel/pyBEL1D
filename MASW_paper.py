@@ -13,6 +13,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     import numpy as np # For the initialization of the parameters
     from matplotlib import pyplot # For graphics on post-processing
     from pyBEL1D.utilities import Tools # For further post-processing
+    import os
     from os import listdir
     from os.path import isfile, join
 
@@ -24,6 +25,26 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #########################################################################################
     from pysurf96 import surf96
     from scipy import stats
+
+    def multipage(filename, figs=None, dpi=300):
+        from matplotlib.backends.backend_pdf import PdfPages
+        import matplotlib.pyplot as plt
+        pp = PdfPages(filename)
+        if figs is None:
+            figs = [plt.figure(n) for n in plt.get_fignums()]
+        for fig in figs:
+            fig.savefig(pp, format='pdf')
+        pp.close()
+    
+    def multiPngs(folder, figs=None, dpi=300):
+        import matplotlib.pyplot as plt
+        from os.path import join
+        if figs is None:
+            figs = [plt.figure(n) for n in plt.get_fignums()]
+        i = 1
+        for fig in figs:
+            fig.savefig(join(folder,'Figure{}.png'.format(i)),dpi=dpi, format='png')
+            i += 1
 
     Graphs = False
 
@@ -39,6 +60,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     DatasetClean = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
     ErrorModelSynth = [0.075, 20]
     NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*DatasetClean*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+    # np.savetxt('MASW_BenchmarkDataset.txt', DatasetClean)
+    # np.savetxt('MASW_BenchamrkNoise.txt', NoiseEstimate)
     # np.save('NoiseEstimateTest.npy',NoiseEstimate)
     randVal = 0#np.random.randn(1)
     print("The dataset is shifted by {} times the NoiseLevel".format(randVal))
@@ -87,17 +110,23 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     forward = {"Fun":forwardFun,"Axis":Periods}
     cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
     # Initialize the model parameters for BEL1D
-    nbModelsBase = 100
+    nbModelsBase = 1000
     ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
     Test1=False
+    ParallelComputing = True
+    if ParallelComputing:
+        pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
+        ppComp = [True, pool]
+    else:
+        ppComp = [False, None] # No parallel computing
     if Test1:
         stats = True
         def MixingFunc(iter:int) -> float:
-            return 0.1# 1/(iter+1) # Always keeping the same proportion of models as the initial prior
+            return 1# Always keeping the same proportion of models as the initial prior
         if stats:
-            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Rejection=0.1, Mixing=MixingFunc,Graphs=Graphs, verbose=True)
+            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=Graphs, verbose=True)
         else:
-            Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs)
+            Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs)
         if Graphs:
 
             # Show final results analysis:
@@ -114,6 +143,21 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)#,Parallelization=[True, pool])
             # Graph for the CCA space parameters loads
             _, ax = pyplot.subplots()
+            B = PrebelInit.CCA.y_loadings_
+            B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
+            ind =  np.asarray(range(B.shape[0]))+1
+            ax.bar(x=ind,height=B[0],label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][0]))
+            for i in range(B.shape[0]+1)[1:-1]:
+                ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][i]))
+            box = ax.get_position()
+            ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
+            ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
+            ax.set_ylabel('Relative contribution')
+            ax.set_xlabel('CCA dimension')
+            ax.set_title('First iteration')
+            pyplot.show(block=False)
+
+            _, ax = pyplot.subplots()
             B = Postbel.CCA.y_loadings_
             B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
             ind =  np.asarray(range(B.shape[0]))+1
@@ -125,23 +169,258 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
             ax.set_ylabel('Relative contribution')
             ax.set_xlabel('CCA dimension')
+            ax.set_title('Last iteration')
             pyplot.show(block=False)
 
             # Compare the results to McMC results:
-            McMC = np.load("MASW_Bench.npy")
-            DREAM=McMC[:,:5]
-            DREAM = np.unique(DREAM,axis=0)
+            McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
+            # We consider a burn-in period of 50%:
+            DREAM=McMC[int(len(McMC)/2):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
+            # DREAM = np.unique(DREAM,axis=0)
             Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)
 
+            ## Testing the McMC algorithm after BEL1D with IPR:
+            print('Executing MCMC')
+            ## Executing MCMC on the prior:
+            MCMC_Init = PrebelInit.runMCMC(Dataset=Dataset, nbChains=10, nbSamples=50000, NoiseModel=NoiseEstimate)
+            ## Extracting the after burn-in models (last 50%)
+            MCMC = []
+            for i in range(MCMC_Init.shape[0]):
+                for j in np.arange(int(MCMC_Init.shape[1]/2),MCMC_Init.shape[1]):
+                    MCMC.append(np.squeeze(MCMC_Init[i,j,:]))
+            MCMC_Init = np.asarray(MCMC)
+            Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Init)
+            ## Exectuing MCMC on the posterior:
+            MCMC_Final = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)
+            ## Extracting the after burn-in models (last 50%)
+            MCMC = []
+            for i in range(MCMC_Final.shape[0]):
+                for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
+                    MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
+            MCMC_Final = np.asarray(MCMC)
+            Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Final)
             # Stop execution to display the graphs:
+            # multipage('Benchmark.pdf',dpi=300)
+            multiPngs('BenchmarkFigs')
             pyplot.show()
+        ##########
+        # Testing the model with more layers (4, 5 and 6)
+        ##########
+        # We need to rebuild the MODELSET structure since the forward cannot be exctly the same (more layers means that the fixed parameters must change as well)
+        TestOtherNbLayers = True
+        if TestOtherNbLayers:
+            Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)
+            CurrentGraph = pyplot.gcf()
+            CurrentAxes = CurrentGraph.get_axes()[0]
+            nbLayer = 3
+            TrueMod = list()
+            TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
+            TrueMod.append(TrueModel[nbLayer-1:2*nbLayer-1])
+            CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])   
+            CurrentAxes.set_xlim(left=0,right=1)
+            CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+            from scipy import stats
+            prior4 = np.array([[0.0005, 0.015, 0.1, 0.18],[0.0005, 0.015, 0.1, 0.18],[0.01, 0.1, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
+            def funcSurf96_4(model):
+                import numpy as np
+                from pysurf96 import surf96
+                Vp = np.asarray([0.300, 0.300, 0.750, 1.5])
+                rho = np.asarray([1.5, 1.5, 1.9, 2.2])
+                nLayer = 4
+                Frequency = np.logspace(0.1,1.5,50)
+                Periods = np.divide(1,Frequency)
+                return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+
+            prior5 = np.array([[0.0005, 0.015, 0.1, 0.18],[0.0005, 0.015, 0.1, 0.18],[0.005, 0.05, 0.25, 0.45],[0.005, 0.05, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
+            def funcSurf96_5(model):
+                import numpy as np
+                from pysurf96 import surf96
+                Vp = np.asarray([0.300, 0.300, 0.750, 0.750, 1.5])
+                rho = np.asarray([1.5, 1.5, 1.9, 1.9, 2.2])
+                nLayer = 5
+                Frequency = np.logspace(0.1,1.5,50)
+                Periods = np.divide(1,Frequency)
+                return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+
+            prior6 = np.array([[0.00033, 0.01, 0.1, 0.18],[0.00033, 0.01, 0.1, 0.18],[0.00033, 0.01, 0.1, 0.18],[0.005, 0.05, 0.25, 0.45],[0.005, 0.05, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
+            def funcSurf96_6(model):
+                import numpy as np
+                from pysurf96 import surf96
+                Vp = np.asarray([0.300, 0.300, 0.300, 0.750, 0.750, 1.5])
+                rho = np.asarray([1.5, 1.5, 1.5, 1.9, 1.9, 2.2])
+                nLayer = 6
+                Frequency = np.logspace(0.1,1.5,50)
+                Periods = np.divide(1,Frequency)
+                return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+
+            prior7 = np.array([[0.00033, 0.01, 0.1, 0.18],[0.00033, 0.01, 0.1, 0.18],[0.00033, 0.01, 0.1, 0.18],[0.0033, 0.033, 0.25, 0.45],[0.0033, 0.033, 0.25, 0.45],[0.0033, 0.033, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
+            def funcSurf96_7(model):
+                import numpy as np
+                from pysurf96 import surf96
+                Vp = np.asarray([0.300, 0.300, 0.300, 0.750, 0.750, 0.750, 1.5])
+                rho = np.asarray([1.5, 1.5, 1.5, 1.9, 1.9, 1.9, 2.2])
+                nLayer = 7
+                Frequency = np.logspace(0.1,1.5,50)
+                Periods = np.divide(1,Frequency)
+                return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+
+            def MixingFunc(iter:int) -> float:
+                return 1# Always keeping the same proportion of models as the initial prior
+
+            for nLayer in np.arange(4,7+1):
+                if nLayer == 4:
+                    nbModelsBase = 2000
+                    prior = prior4
+                    forwardFun = funcSurf96_4
+                elif nLayer == 5:
+                    nbModelsBase = 4000
+                    prior = prior5
+                    forwardFun = funcSurf96_5
+                elif nLayer == 6:
+                    nbModelsBase = 8000
+                    prior = prior6
+                    forwardFun = funcSurf96_6
+                else:
+                    nbModelsBase = 16000
+                    prior = prior7
+                    forwardFun = funcSurf96_7
+                nParam = 2 # e and Vs
+                ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
+                NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+                NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
+                NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+                Mins = np.zeros(((nLayer*nParam)-1,))
+                Maxs = np.zeros(((nLayer*nParam)-1,))
+                Units = ["\\ [km]", "\\ [km/s]"]
+                NFull = ["Thickness\\ ","s-Wave\\ velocity\\ "]
+                NShort = ["e_{", "Vs_{"]
+                ident = 0
+                for j in range(nParam):
+                    for i in range(nLayer):
+                        if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                            ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                            Mins[ident] = prior[i,j*2]
+                            Maxs[ident] = prior[i,j*2+1]
+                            NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                            NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                            NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                            ident += 1
+                method = "DC"
+                Periods = np.divide(1,Frequency)
+                paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+                forward = {"Fun":forwardFun,"Axis":Periods}
+                cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
+                # Initialize the model parameters for BEL1D
+                ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
+                timeIn = time.time()
+                Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=True)
+                timeOut = time.time()
+                print(f'Run for {nLayer} layers done in {timeOut-timeIn} seconds')
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                nbLayer = 3
+                CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+            pyplot.show()
+    test2 = True
+    if test2:
+        ### Mirandola test case - 3 layers:
+        priorMIR = np.array([[0.005, 0.05, 0.1, 0.5, 0.2, 4.0, 1.5, 3.5], [0.045, 0.145, 0.1, 0.8, 0.2, 4.0, 1.5, 3.5], [0, 0, 0.3, 2.5, 0.2, 4.0, 1.5, 3.5]]) # MIRANDOLA prior test case
+        nbParam = int(priorMIR.size/2 - 1)
+        nLayer, nParam = priorMIR.shape
+        nParam = int(nParam/2)
+        stdPrior = [None]*nbParam
+        meansPrior = [None]*nbParam
+        stdUniform = lambda a,b: (b-a)/np.sqrt(12)
+        meansUniform = lambda a,b: (b-a)/2
+        ident = 0
+        for j in range(nParam):
+                    for i in range(nLayer):
+                        if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                            stdPrior[ident] = stdUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+                            meansPrior[ident] = meansUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+                            ident += 1
+        Dataset = np.loadtxt("Data/DC/Mirandola_InterPACIFIC/Average/Average_interp60_cuttoff.txt")
+        FreqMIR = Dataset[:,0]
+        DatasetMIR = np.divide(Dataset[:,1],1000)# Phase velocity in km/s for the forward model
+        ErrorModel = [0.075, 20]
+        ModelSetMIR = BEL1D.MODELSET.DC(prior=priorMIR, Frequency=FreqMIR)
+        MixingFunc = lambda iter: 1 #Return 1 whatever the iteration
+        NoiseEstimate = np.asarray(np.divide(ErrorModel[0]*DatasetMIR*1000 + np.divide(ErrorModel[1],FreqMIR),1000)) # Standard deviation for all measurements in km/s
+        nbModelsBase = 10000
+        Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=True)
+        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS)
+        Postbel.ShowPostModels(RMSE=True)
+        Postbel.ShowDataset(RMSE=True, Prior=True)
+        ax = pyplot.gca()
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k') # Adding the field dataset on to of the graph
+        fig, ax = pyplot.subplots()
+        ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior')
+        ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior')
+        ylim = ax.get_ylim()
+        dBedrock = 118
+        ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
+        ax.set_xlabel('Depth to bedrock [m]')
+        ax.set_ylabel('Probability estimation [/]')
+        ax.legend()
+        # multipage('Mirandola.pdf',dpi=300)
+        multiPngs('MirandolaFigs')
+        pyplot.show()
+
+        # ## Mirandola 4 layers:
+        # priorMIR = np.array([[0.005, 0.050, 0.1, 0.5, 0.2, 4.0, 1.5, 3.5], [0.005, 0.050, 0.3, 0.8, 0.2, 4.0, 1.5, 3.5], [0.040, 0.140, 0.4, 1.0, 0.2, 4.0, 1.5, 3.5], [0, 0, 0.3, 2.5, 0.2, 4.0, 1.5, 3.5]]) # MIRANDOLA prior test case
+        # nbParam = int(priorMIR.size/2 - 1)
+        # nLayer, nParam = priorMIR.shape
+        # nParam = int(nParam/2)
+        # stdPrior = [None]*nbParam
+        # meansPrior = [None]*nbParam
+        # stdUniform = lambda a,b: (b-a)/np.sqrt(12)
+        # meansUniform = lambda a,b: (b-a)/2
+        # ident = 0
+        # for j in range(nParam):
+        #             for i in range(nLayer):
+        #                 if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+        #                     stdPrior[ident] = stdUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+        #                     meansPrior[ident] = meansUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+        #                     ident += 1
+        # Dataset = np.loadtxt("Data/DC/Mirandola_InterPACIFIC/Average/Average_interp60_cuttoff.txt")
+        # FreqMIR = Dataset[:,0]
+        # DatasetMIR = np.divide(Dataset[:,1],1000)# Phase velocity in km/s for the forward model
+        # ErrorModel = [0.075, 20]
+        # ModelSetMIR = BEL1D.MODELSET.DC(prior=priorMIR, Frequency=FreqMIR)
+        # MixingFunc = lambda iter: 1 #Return 1 whatever the iteration
+        # NoiseEstimate = np.asarray(np.divide(ErrorModel[0]*DatasetMIR*1000 + np.divide(ErrorModel[1],FreqMIR),1000)) # Standard deviation for all measurements in km/s
+        # nbModelsBase = 40000 # Increased to account for more parameters
+        # Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=True)
+        # # Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS)
+        # Postbel.ShowPostModels(RMSE=True)
+        # # Postbel.ShowDataset(RMSE=True, Prior=True)
+        # # ax = pyplot.gca()
+        # # ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k') # Adding the field dataset on to of the graph
+        # # fig, ax = pyplot.subplots()
+        # # ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior')
+        # # ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior')
+        # # ylim = ax.get_ylim()
+        # # dBedrock = 118
+        # # ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
+        # # ax.set_xlabel('Depth to bedrock [m]')
+        # # ax.set_ylabel('Probability estimation [/]')
+        # # ax.legend()
+        # # multipage('Mirandola.pdf',dpi=300)
+        # multiPngs('MirandolaFigs-5Layers')
+        # pyplot.show()
+        
+    if ParallelComputing:
+        pool.terminate()
 
     ##################
     # Now that it works, we will test the different input parameters of the function:
     #   nbModelsBase
     #   nbModelsSample
     #   Mixing
-    #   Rejection
+    #   (Rejection)
     # For each case: testing variations whithin given range + repeat 100 times -> analysis of only the statistics
     ###################
     #from wrapt_timeout_decorator import timeout
@@ -157,12 +436,22 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             stats = None
         return stats
 
-    Discussion = True
+    Discussion = False
     pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
     if Discussion:
-        ## 1) nbModelsBase=nbModelsSample variation -> no mixing 
-        nbTestN, nbTestM, nbTestR, nbRepeat = (10, 5, 5, 100)
-        valTestModels = np.logspace(2,5,nbTestN,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
+        '''
+        First, we test only with the same model for every cases. The dataset is noisy!
+
+        For this test, we try different values for the main parameters:
+            - NbModelsPrior = NbModelsPosterior --> from 100 to 25000 with 10 values on a log scale
+            - Mixing ratio --> from 0.1 to 2 with 4 values on a linear space + no considerations on Mixing (None)
+            - Rejection --> from 0 (no rejection) to 0.9 (90% rejection) with 5 values on a linear space
+
+        Each test is repeated 10 times (with different random noise added to the model). 
+        After each pass, all the results are saved.
+        '''
+        nbTestN, nbTestM, nbTestR, nbRepeat = (10, 5, 5, 10)
+        valTestModels = np.logspace(np.log10(100),np.log10(25000),nbTestN,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
         valTestMixing = np.linspace(0.1,2.0,nbTestM-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
         valTestMixing = np.append(valTestMixing,None)
         valTestRejection = np.linspace(0,0.9,nbTestR) # Tests between 0 and 0.9 for the probability of rejection (only keeping the best fit)
@@ -176,25 +465,30 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         stdsEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
         distEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
         TrueModels = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
+        randVals = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
         k = 0
-        for idxNbModels, nbModelsBase in enumerate(valTestModels):
-            for idxMixing, MixingParam in enumerate(valTestMixing):
-                for idxReject, Rejection in enumerate(valTestRejection):
-                    for repeat in range(nbRepeat):
+        for repeat in range(nbRepeat):
+            for idxNbModels, nbModelsBase in enumerate(valTestModels):
+                for idxMixing, MixingParam in enumerate(valTestMixing):
+                    for idxReject, Rejection in enumerate(valTestRejection):
                         k += 1
                         print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTestN*nbTestM*nbTestR*nbRepeat,nbModelsBase, MixingParam, Rejection))
-                        thresholdValue = 0.2
-                        while True:
-                            TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
-                            try:
-                                Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
-                                VariabilityMax = np.max(np.diff(Dataset))
-                                if VariabilityMax > thresholdValue:
-                                    pass
-                                else:
-                                    break
-                            except:
-                                pass
+                        # thresholdValue = 0.2
+                        # while True:
+                        #     TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
+                        #     try:
+                        #         Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
+                        #         VariabilityMax = np.max(np.diff(Dataset))
+                        #         if VariabilityMax > thresholdValue:
+                        #             pass
+                        #         else:
+                        #             NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*Dataset*1000 + np.divide(ErrorModelSynth[1],Frequency),1000))
+                        #             break
+                        #     except:
+                        #         pass
+                        TrueModelTest = TrueModel
+                        randVal = 0 #np.random.randn(1) --> To better compare to the results from DREAM
+                        Dataset = DatasetClean + randVal*NoiseEstimate
                         if MixingParam is not None:
                             def MixingFuncTest(iter:int) -> float:
                                 return MixingParam # Always keeping the same proportion of models as the initial prior
@@ -209,36 +503,58 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                 meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].means
                                 stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].stds
                                 distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
-                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest # [0,:]
+                                randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
                                 print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
                             else:
                                 nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
                                 cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                                stdsNaN = TrueModelTest[0,:]
+                                stdsNaN = TrueModelTest #[0,:]
                                 stdsNaN[:] = np.nan
                                 meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
                                 stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
                                 distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest # [0,:]
+                                randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
                                 print('Did not finish! (ERROR)')
                         except Exception as e:
                             print(e)
                             nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
                             cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                            stdsNaN = TrueModelTest[0,:]
+                            stdsNaN = TrueModelTest #[0,:]
                             stdsNaN[:] = np.nan
                             meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
                             stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
                             distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest[0,:]
+                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest #[0,:]
+                            randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
                             print('Did not finish! (TIMEOUT after 1 hour)')
+            # Savingf the results after each pass:
+            print('\n \n \n \t Pass {} of {} over! \n Moving on . . . \n \n \n'.format(repeat+1, nbRepeat))
+            cwd = os.getcwd()
+            directory = os.path.join(cwd,'testingInitModelsNoNoiseAdded/{}'.format(repeat))
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            np.save(os.path.join(directory,'nbIter'),nbIter)
+            np.save(os.path.join(directory,'cpuTime'),cpuTime)
+            np.save(os.path.join(directory,'meansEnd'),meansEnd)
+            np.save(os.path.join(directory,'stdsEnd'),stdsEnd)
+            np.save(os.path.join(directory,'distEnd'),distEnd)
+            np.save(os.path.join(directory,'TrueModels'),TrueModels)
+            np.save(os.path.join(directory,'randVals'),randVals)
         # pool.terminate()
-        np.save('./testingNbModels/nbIter',nbIter)
-        np.save('./testingNbModels/cpuTime',cpuTime)
-        np.save('./testingNbModels/meansEnd',meansEnd)
-        np.save('./testingNbModels/stdsEnd',stdsEnd)
-        np.save('./testingNbModels/distEnd',distEnd)
-        np.save('./testingNbModels/TrueModels',TrueModels)
+        # Final pass saving of the results
+        cwd = os.getcwd()
+        directory = os.path.join(cwd,'testingInitModelsNoNoiseAdded/final')
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        np.save(os.path.join(directory,'nbIter'),nbIter)
+        np.save(os.path.join(directory,'cpuTime'),cpuTime)
+        np.save(os.path.join(directory,'meansEnd'),meansEnd)
+        np.save(os.path.join(directory,'stdsEnd'),stdsEnd)
+        np.save(os.path.join(directory,'distEnd'),distEnd)
+        np.save(os.path.join(directory,'TrueModels'),TrueModels)
+        np.save(os.path.join(directory,'randVals'),randVals)
         def multipage(filename, figs=None, dpi=200):
             from matplotlib.backends.backend_pdf import PdfPages
             import matplotlib.pyplot as plt
@@ -248,64 +564,64 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             for fig in figs:
                 fig.savefig(pp, format='pdf')
             pp.close()
-        if Graphs:
-            # CPU time evolution
-            pyplot.figure()
-            means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Number of models [/]')
-            ax.set_ylabel('CPU time [sec]')
-            # Number of iterations
-            pyplot.figure()
-            means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Number of models [/]')
-            ax.set_ylabel('Number of iterations [/]')
-            # Convergence distance
-            pyplot.figure()
-            means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
-            pyplot.plot(valTest,means,'b-')
-            pyplot.plot(valTest,means+stds,'b--')
-            pyplot.plot(valTest,means-stds,'b--')
-            ax = pyplot.gca()
-            ax.set_xlabel('Number of models [/]')
-            ax.set_ylabel('Convergence distance [/]')
-            # Converged distributions
-            nbParam = len(ModelSynthetic.prior)
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Distance from mean value obtained')
-                ax.set_xlabel('Number of models [/]')
-            for j in range(nbParam):
-                pyplot.figure()
-                means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
-                pyplot.plot(valTest,means,'b-')
-                pyplot.plot(valTest,means+stds,'b--')
-                pyplot.plot(valTest,means-stds,'b--')
-                ax = pyplot.gca()
-                ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
-                ax.set_ylabel('Standard deviation value obtained')
-                ax.set_xlabel('Number of models [/]')
-            multipage('./testingNbModels/Figures_NbModels.pdf')
-            pyplot.show(block=True)
+        # if Graphs:
+        #     # CPU time evolution
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(cpuTime,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Number of models [/]')
+        #     ax.set_ylabel('CPU time [sec]')
+        #     # Number of iterations
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(nbIter,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Number of models [/]')
+        #     ax.set_ylabel('Number of iterations [/]')
+        #     # Convergence distance
+        #     pyplot.figure()
+        #     means = np.nanmean(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     stds = np.nanstd(np.reshape(distEnd,(nbTest,nbRepeat)),axis=1)
+        #     pyplot.plot(valTest,means,'b-')
+        #     pyplot.plot(valTest,means+stds,'b--')
+        #     pyplot.plot(valTest,means-stds,'b--')
+        #     ax = pyplot.gca()
+        #     ax.set_xlabel('Number of models [/]')
+        #     ax.set_ylabel('Convergence distance [/]')
+        #     # Converged distributions
+        #     nbParam = len(ModelSynthetic.prior)
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([meansEnd[i][j]-TrueModels[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         # pyplot.plot(valTest,[TrueModel[j] for _ in range(nbTest)],'k')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Distance from mean value obtained')
+        #         ax.set_xlabel('Number of models [/]')
+        #     for j in range(nbParam):
+        #         pyplot.figure()
+        #         means = np.nanmean(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         stds = np.nanstd(np.reshape([stdsEnd[i][j] for i in range(nbTest*nbRepeat)],(nbTest,nbRepeat)),axis=1)
+        #         pyplot.plot(valTest,means,'b-')
+        #         pyplot.plot(valTest,means+stds,'b--')
+        #         pyplot.plot(valTest,means-stds,'b--')
+        #         ax = pyplot.gca()
+        #         ax.set_title(r'${}$'.format(ModelSynthetic.paramNames["NamesFU"][j]))
+        #         ax.set_ylabel('Standard deviation value obtained')
+        #         ax.set_xlabel('Number of models [/]')
+        #     multipage('./testingNbModels/Figures_NbModels.pdf')
+        #     pyplot.show(block=True)
         # ## 2) Mixing:
         # print('\n\nMixing Tests\n\n')
         # valTest = np.linspace(0.1,2.0,nbTest)

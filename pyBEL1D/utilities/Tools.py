@@ -80,7 +80,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         NoiseLevel *= 1e-9 # Convert to Volts
         # Propagating NoiseLevel:
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) 
-        COV_diff = np.zeros((nbTest,dimD,dimD))
+        # COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
@@ -106,7 +106,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
             raise Exception('Wrong length for NoiseLevel list.')
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) #10
-        COV_diff = np.zeros((nbTest,dimD,dimD))
+        # COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
@@ -141,11 +141,11 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
             raise Exception('Wrong length for NoiseLevel list.')
         nbTest = int(np.ceil(POSTBEL.nbModels/10)) 
-        COV_diff = np.zeros((nbTest,dimD,dimD))
+        # COV_diff = np.zeros((nbTest,dimD,dimD))
         index = np.random.permutation(np.arange(POSTBEL.nbModels))
         index = index[:nbTest] # Selecting a set of random models to compute the noise propagation
         data = POSTBEL.FORWARD[index,:] 
-        dataNoisy = data + np.multiply(np.repeat(np.random.randn(nbTest,1),data.shape[1],axis=1),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
+        dataNoisy = data + np.multiply(np.random.randn(nbTest,data.shape[1]),np.repeat(np.reshape(NoiseLevel,(1,np.shape(data)[1])),data.shape[0],axis=0)) # np.divide((NoiseLevel[0]*data*1000 + np.divide(1,POSTBEL.MODPARAM.forwardFun["Axis"])/NoiseLevel[1]),1000)# The error model is in Frequency, not periods
         scoreData = POSTBEL.PCA['Data'].transform(data)
         scoreDataNoisy = POSTBEL.PCA['Data'].transform(dataNoisy)
         err_f = scoreData-scoreDataNoisy
