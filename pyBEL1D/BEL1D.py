@@ -1,7 +1,7 @@
 # Importing custom libraries
 from .utilities import Tools
 from .utilities.KernelDensity import KDE
-#Importing common libraries
+# Importing common libraries
 import numpy as np 
 import math as mt 
 import matplotlib
@@ -14,7 +14,9 @@ from pathos import pools as pp
 from functools import partial
 import time
 
-from pysurf96 import surf96
+# from pysurf96 import surf96
+from TEM_frwrd.simpeg_frwrd import simpeg_frwrd
+
 
 def round_to_5(x,n=1): 
     # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
@@ -230,6 +232,101 @@ class MODELSET:
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
 
+    @classmethod
+    def TEM(cls, prior=None, timing=None, device_sttngs=None, simpeg_sttngs=None):
+        """TEM is a class method that generates a MODELSET class object for TEM.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, rho_1_min, rho_1_max],
+                               [e_2_min, ...    ...        rho_2_max],
+                               [:        ...    ...                :],
+                               [e_nLay-1_min,   ...   rho_nLay-1_max],
+                               [0, 0,           ...   rho_2_nLay_max]]
+
+                               It has 2 columns[thk_min, thk_max, rho_min, rho_max]
+                               and nLay lines, nLay layers in the model.
+
+            - Timing (array): a numpy array containing the timings for the dataset simulation.
+            - device_props: dictionary with properties necessary for the initialization of TEM frwrd sol
+
+            By default, all inputs are None and this generates the TEM case
+            using the forward solution from SimPEG
+
+            Units for the prior are:
+                - Thickness (e) in m
+                - Resistivity (rho) in Ohm
+        """
+        
+        from TEM_frwrd.simpeg_frwrd import simpeg_frwrd
+
+        # if prior is None: # create a default prior
+            # prior = np.array([[2.5, 7.5, 0.035, 0.10, 0.005, 0.350], [0, 0, 0.10, 0.30, 0.005, 0.350]])
+
+        nLayer, nParam = prior.shape
+        nParam /= 2  # from min/max
+        nParam = int(nParam)
+
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1, 1, 1/100, 1/100, 1/1000, 1/1000]),nLayer,1))
+        ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+
+        Mins = np.zeros(((nLayer*nParam)-1,))
+        Maxs = np.zeros(((nLayer*nParam)-1,))
+
+        Units = [" [m]", " [Ohmm]"]
+        NFull = ["Thickness","Resistivity"]
+        NShort = ["thk_{", "rho_{"]
+        ident = 0
+        for j in range(nParam):  # nested to loop to fill the lists
+            for i in range(nLayer):
+                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                    Mins[ident] = prior[i,j*2]
+                    Maxs[ident] = prior[i,j*2+1]
+                    NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                    NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                    NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                    ident += 1
+
+        method = "TEM"
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits,
+                      "NamesS":NamesShort, "NamesGlobal":NFull,
+                      "NamesGlobalS":["Depth [m]", "Resisitivity [Ohmm]"],"DataUnits":"[V/m²]"}
+
+        device = 'TEMfast'
+
+        coredepth = simpeg_sttngs['coredepth']
+        csz = simpeg_sttngs['csz']
+        relerr = simpeg_sttngs['relerr']
+        abserr = simpeg_sttngs['abserr']
+
+        print('initializing simpeg forward solver ...')
+        frwrd_sp = simpeg_frwrd(setup_device=device_sttngs,
+                                setup_simpeg=simpeg_sttngs,
+                                device=device,
+                                nlayer=nLayer, nparam=nParam)
+        print(frwrd_sp.coredepth)
+        print(simpeg_sttngs)
+        print(frwrd_sp.properties_snd)
+        print('done setting simpeg forward solver ...')
+        
+        if not timing is None:
+            frwrd_sp.times_rx = timing
+            print('overriding times_rx with the ones provided in timing: ')
+        
+        timing = frwrd_sp.times_rx
+        print(timing)
+        
+        forwardFun = lambda model: frwrd_sp.calc_response(model) # forwardFun with model as input
+        forward = {"Fun":forwardFun, "Axis":timing}
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
+
+
 class PREBEL:
     """Object that is used to store the PREBEL elements:
     
@@ -415,7 +512,7 @@ class PREBEL:
             - Dataset (np.array): the field dataset
             - NoiseModel (list): the list defining the noise model (see dedicated functions)
             - Simplified (bool): ramdom sampling of a number of models from componded prior or not
-                                 (default=False)
+                                 (default=False)     NOT USED here!!
             - RemoveOutlier (bool): remove ourliers for the KDE computation (default=False)
             - nbMax (int): the number of random samples to keep if Simplified=True (default=100000)
             - MixingRatio (float): mixing proportion for the prior and posterior (keep constant 
@@ -583,68 +680,6 @@ class PREBEL:
         #     pool.terminate()
         return PrebelNew
     
-    def runMCMC(self, Dataset=None, nbSamples=50000, nbChains=10, NoiseModel=None):
-        if Dataset is None:
-            raise Exception('No Dataset given to compute likelihood')
-        if len(Dataset) != self.FORWARD.shape[1]:
-            raise Exception('Dataset given not compatible with forward model')
-        if NoiseModel is None:
-            raise Exception('No noise model provided. Impossible to compute the likelihood')
-        if len(NoiseModel) != len(Dataset):
-            raise Exception('NoiseModel should have the same size as the dataset')
-        timeIn = time.time()
-        nbParam = len(self.MODPARAM.prior)
-        accepted = np.zeros((nbChains, nbSamples, nbParam))
-        for j in range(nbChains):
-            rejectedNb = 0
-            i = 0
-            LikelihoodLast = 1e-50 # First sample most likely accepted
-            Covariance = 0.01*np.cov(self.MODELS.T) # Compute the initial covariance from the prior distribution
-            passed = False
-            while i < nbSamples:
-                if i == 0:
-                    ## Sampling a random model from the prior distribution
-                    sampleCurr = Tools.Sampling(self.PRIOR,self.CONDITIONS,nbModels=1)
-                else:
-                    ## Random change to the sampled model:
-                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((nbParam,)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
-                ## Computing the likelihood from a data misfit:
-                if self.MODPARAM.cond(sampleCurr):
-                    try:
-                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
-                        DataDiff = Dataset - SynData
-                        FieldError = NoiseModel
-                        A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
-                        B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
-                        Likelihood = np.prod(np.multiply(A, B))
-                    except:
-                        rejectedNb += 1
-                        continue
-                else:
-                    rejectedNb += 1
-                    continue
-                ## Sampling (or not) the model:
-                ratio = Likelihood/LikelihoodLast
-                if ratio > np.random.uniform(0,1):
-                    sampleLast = sampleCurr
-                    accepted[j,i,:] = sampleCurr[0,:]
-                    i += 1
-                    passed = False
-                else:
-                    rejectedNb += 1
-                if np.mod(i,50) == 0 and not(passed):
-                    # LikelihoodLast = 1e-50
-                    AcceptanceRatio = i/(rejectedNb+i)
-                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
-                        Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
-                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
-                        Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
-                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
-                    passed = True
-                LikelihoodLast = Likelihood
-        print(f'MCMC on PREBEL executed in {time.time()-timeIn} seconds.')
-        return np.asarray(accepted)
-    
     def ShowPreModels(self,TrueModel=None):
         '''SHOWPREMODELS is a function that displays the models sampled from the prior model space.
 
@@ -809,73 +844,6 @@ class POSTBEL:
                 if nbTestsMax < 0:
                     raise Exception('Impossible to sample models in the current prior under reasonable timings!')
             self.SAMPLES = Samples
-    
-    def runMCMC(self, nbSamples=10000, nbChains=10, NoiseModel=None):
-        if NoiseModel is None:
-            raise Exception('No noise model provided. Impossible to compute the likelihood')
-        if len(NoiseModel) != len(self.DATA['True'][0,:]):
-            raise Exception('NoiseModel should have the same size as the dataset')
-        timeIn = time.time()
-        nbParam = len(self.MODPARAM.prior)
-        accepted = np.zeros((nbChains, nbSamples, nbParam))
-        for j in range(nbChains):
-            rejectedNb = 0
-            i = 0
-            LikelihoodLast = 1e-50 # First sample most likely accepted
-            Covariance = 0.01*np.cov(self.SAMPLES.T) # Compute the initial covariance from the prior distribution
-            passed = False
-            while i < nbSamples:
-                if i == 0:
-                    ## Sampling a random model from the posterior distribution
-                    samples_CCA = self.KDE.SampleKDE(nbSample=1)
-                    # Back transform models to original space:
-                    samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
-                    samples_PCA *= self.CCA.y_std_
-                    samples_PCA += self.CCA.y_mean_
-                    # samples_PCA = self.CCA.inverse_transform(samples_CCA)
-                    if self.PCA['Model'] is None:
-                        sampleCurr = samples_PCA 
-                    else:
-                        sampleCurr = self.PCA['Model'].inverse_transform(samples_PCA)
-                else:
-                    ## Random change to the sampled model:
-                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((len(self.MODPARAM.prior),)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
-                ## Computing the likelihood from a data misfit:
-                if self.MODPARAM.cond(sampleCurr):
-                    try:
-                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
-                        DataDiff = self.DATA['True'] - SynData
-                        FieldError = NoiseModel
-                        A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
-                        B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
-                        Likelihood = np.prod(np.multiply(A, B))
-                    except:
-                        rejectedNb += 1
-                        continue
-                else:
-                    rejectedNb += 1
-                    continue
-                ## Sampling (or not) the model:
-                ratio = Likelihood/LikelihoodLast
-                if ratio > np.random.uniform(0,1):
-                    sampleLast = sampleCurr
-                    accepted[j,i,:] = sampleCurr[0,:]
-                    i += 1
-                    passed = False
-                else:
-                    rejectedNb += 1
-                if np.mod(i,50) == 0 and not(passed):
-                    # LikelihoodLast = 1e-50
-                    AcceptanceRatio = i/(rejectedNb+i)
-                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
-                        Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
-                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
-                        Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
-                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
-                    passed = True
-                LikelihoodLast = Likelihood
-        print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
-        return np.asarray(accepted)
 
     def DataPost(self, Parallelization=[False,None],verbose:bool=False):
         '''DATAPOST is a function that computes the forward model for all the 
@@ -1161,7 +1129,7 @@ class POSTBEL:
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
-            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
+            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=30,ha='right')
 
 
         fig.suptitle("Posterior model visualization",fontsize=16)
@@ -1250,7 +1218,6 @@ class StatsResults:
         file_write = open(Filename+'.stats','wb')
         dill.dump(self,file_write)
         file_write.close()
-
 def loadStats(Filename):
     import dill
     file_read = open(Filename,'rb')
@@ -1342,7 +1309,6 @@ def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
 from typing import Callable
 def defaultMixing(iter) -> float:
     return 0.5
-    
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
     nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
     saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
@@ -1416,9 +1382,6 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         Postbel = POSTBEL(Prebel)
         Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
-        if Graphs:
-            if it == 0:
-                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
         Postbel.DataPost(Parallelization=Parallelization)
         # Testing for convergence (5% probability of false positive):
         if len(ModelLastIter) > nSamplesConverge:
@@ -1435,10 +1398,6 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         if not(diverge):
             if verbose:
                 print('Model has converged at iter {}.'.format(it))
-            if Graphs:
-                NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate)
-                Postbel.KDE.KernelDensity(NoiseError=NoiseToLastPrebel, RemoveOutlier=True)#,Parallelization=Parallelization)
-                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
             break
         ModelLastIter = Postbel.SAMPLES
         # If not converged yet --> apply transforms to the sampled set for mixing and rejection
@@ -1481,8 +1440,6 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         ax = pyplot.gca()
         ax.set_ylabel('Cumulative CPU time [sec]')
         ax.set_xlabel('Iteration nb.')
-        if verbose:
-            print('Computation done in {} seconds!'.format(statsReturn[-1].timing))
         nbParam = len(Prebel.MODPARAM.prior)
         for j in range(nbParam):
             pyplot.figure()
