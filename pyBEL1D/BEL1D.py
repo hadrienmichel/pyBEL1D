@@ -1,3 +1,19 @@
+# TODO/DONE:
+#   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
+#   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
+#   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96 - compiled with msys2 for python)
+#   - (Done on 18/05/2020) Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
+#   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
+#   - (Done on 13/05/2020) Add support for iterations
+#   - Parallelization of the computations:
+#       - (Done) KDE (one core/thread per dimension) -> Most probable gain
+#       - (Done on 14/07/2020) Forward modelling (all cores/threads operating) -> Needed for more complex forward models
+#       - (Not possible to parallelize (same seed for different workers))Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
+#   - (Done) Add iteration convergence critereon!
+#   - Lower the memory needs (how? not urgent)
+#   - Comment the codes!
+#   - (Done) Check KDE behaviour whit outliers (too long computations and useless?)
+
 # Importing custom libraries
 from .utilities import Tools
 from .utilities.KernelDensity import KDE
@@ -13,37 +29,65 @@ from pathos import multiprocessing as mp # No issues with pickeling with this
 from pathos import pools as pp
 from functools import partial
 import time
+from numpy import random
 
-from pysurf96 import surf96
+# Forward models:
+from pygimli.physics.sNMR import MRS, MRS1dBlockQTModelling # SNMR
+from pysurf96 import surf96                                 # Dispersion Curves
 
-def round_to_5(x,n=1): 
+def round_to_n(x,n=1): 
+    '''Function that rounds the inputs float to n significant numbers.
+
+    Inputs: - x (float): the input float to be rounded
+            - n (int): the number of significant numbers
+    Returns the rounded float.
+    '''
     # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
     tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
     return tmp
 
-# Parralelization fucntions:
+# Parralelization functions:
 def ForwardParallelFun(Model, function, nbVal):
+    '''This function enables the use of any function to be parralelized.
+
+    ATTENTION: The function MUST be pickable by dill.
+
+    Inputs: - Model (np.ndarray): the model for which the forward must be run
+            - function (lambda function): the function that, when given a model,
+                                          returns the corresponding dataset
+            - nbVal (int): the number of values that the forward function 
+                           is supposed to output. Used only in case of error.
+    Output: The computed forward model or a None array of the same size.
+    '''
     try:
         ForwardComputed = function(Model)
     except:
         ForwardComputed = [None]*nbVal
     return ForwardComputed
 
-# TODO/DONE:
-#   - (Done on 24/04/2020) Add conditions (function for checking that samples are within a given space)
-#   - (Done on 13/04/2020) Add Noise propagation (work in progress 29/04/20 - OK for SNMR 30/04/20 - DC OK) -> Noise impact is always very low???
-#   - (Done on 11/05/2020) Add DC example (uses pysurf96 for forward modelling: https://github.com/miili/pysurf96 - compiled with msys2 for python)
-#   - (Done on 18/05/2020) Add postprocessing (partially done - need for True model visualization on top and colorscale of graphs)
-#   - (Done on 12/05/2020) Speed up kernel density estimator (vecotization?) - result: speed x4
-#   - (Done on 13/05/2020) Add support for iterations
-#   - Parallelization of the computations:
-#       - KDE (one core/thread per dimension) -> Most probable gain
-#       - (Done on 14/07/2020) Forward modelling (all cores/threads operating) -> Needed for more complex forward models
-#       - (Not possible to parallelize (same seed for different workers))Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
-#   - Add iteration convergence critereon!
-#   - Lower the memory needs (how? not urgent)
-#   - Comment the codes!
-#   - Check KDE behaviour whit outliers (too long computations and useless?)
+def ForwardSNMR(Model, nlay=None ,K=None ,zvec=None ,t=None):
+    '''Function that extracts the forward model from the pygimli class object for SNMR.
+
+    Inputs: - Model (np.ndarray): the model for which the forward must be run
+            - nlay (int): the number of layers in the inputed model
+            - K (np.ndarray): the kernel matrix (computed from MRSMatlab)
+            - zvec (np.ndarray): the vertical discretization of the kernel matrix
+            - t (np.ndarray): the timings for the data measurements
+    
+    Output: The forward model for the inputted Model
+
+    FURTHER INFORMATIONS:
+
+    For enabling parrallel runs and pickeling, the forward model MUST be declared at the 
+    top of the file. 
+    In the case of pysurf96, the function (surf96) is directly imported and usable as is. 
+    In the case of SNMR, the function (method) is part of a class object and therefore not
+    pickable as is. We create a pickable instance of the forward by creating a function 
+    that calls the class object and its method directly. 
+    
+    This function is pickable (using dill).
+    '''
+    return MRS1dBlockQTModelling(nlay, K, zvec, t).response(Model)
 
 class MODELSET:
     '''MODELSET is an object class that can be initialized using:
@@ -119,7 +163,6 @@ class MODELSET:
                 - Decay time (T_2^*) in sec
 
         """
-        from pygimli.physics import sNMR
         import numpy.matlib
         if prior is None:
             prior = np.array([[2.5, 7.5, 0.035, 0.10, 0.005, 0.350], [0, 0, 0.10, 0.30, 0.005, 0.350]])
@@ -151,10 +194,9 @@ class MODELSET:
                     ident += 1
         method = "sNMR"
         paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]","DataName":"Amplitude [V]","DataAxis":"Time/pulses [/]"}# The representation is automated -> no time displayed since pulses are agregated
-        KFile = sNMR.MRS()
+        KFile = MRS()
         KFile.loadKernel(Kernel)
-        ModellingMethod = sNMR.MRS1dBlockQTModelling(nlay=nLayer,K=KFile.K,zvec=KFile.z,t=Timing)
-        forwardFun = lambda model: ModellingMethod.response(model)
+        forwardFun = lambda model: ForwardSNMR(model, nLayer, KFile.K, KFile.z, Timing)
         forward = {"Fun":forwardFun,"Axis":Timing}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
@@ -185,8 +227,7 @@ class MODELSET:
                 - P-wave velocity (Vp) in km/sec
                 - Density (rho) in T/m^3
         """
-        from pysurf96 import surf96
-        import numpy.matlib
+        # from pysurf96 import surf96
         if prior is None:
             prior = np.array([[0.0025, 0.0075, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
         if Frequency is None:
@@ -595,6 +636,7 @@ class PREBEL:
         timeIn = time.time()
         nbParam = len(self.MODPARAM.prior)
         accepted = np.zeros((nbChains, nbSamples, nbParam))
+        acceptedData = np.zeros((nbChains, nbSamples, len(Dataset)))
         for j in range(nbChains):
             rejectedNb = 0
             i = 0
@@ -628,6 +670,7 @@ class PREBEL:
                 if ratio > np.random.uniform(0,1):
                     sampleLast = sampleCurr
                     accepted[j,i,:] = sampleCurr[0,:]
+                    acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
                 else:
@@ -643,7 +686,7 @@ class PREBEL:
                     passed = True
                 LikelihoodLast = Likelihood
         print(f'MCMC on PREBEL executed in {time.time()-timeIn} seconds.')
-        return np.asarray(accepted)
+        return np.asarray(accepted), np.asarray(acceptedData)
     
     def ShowPreModels(self,TrueModel=None):
         '''SHOWPREMODELS is a function that displays the models sampled from the prior model space.
@@ -818,6 +861,7 @@ class POSTBEL:
         timeIn = time.time()
         nbParam = len(self.MODPARAM.prior)
         accepted = np.zeros((nbChains, nbSamples, nbParam))
+        acceptedData = np.zeros((nbChains, nbSamples, len(self.DATA['True'][0,:])))
         for j in range(nbChains):
             rejectedNb = 0
             i = 0
@@ -841,7 +885,7 @@ class POSTBEL:
                     ## Random change to the sampled model:
                     sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((len(self.MODPARAM.prior),)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
                 ## Computing the likelihood from a data misfit:
-                if self.MODPARAM.cond(sampleCurr):
+                if self.MODPARAM.cond(sampleCurr[0,:]):
                     try:
                         SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
                         DataDiff = self.DATA['True'] - SynData
@@ -860,6 +904,7 @@ class POSTBEL:
                 if ratio > np.random.uniform(0,1):
                     sampleLast = sampleCurr
                     accepted[j,i,:] = sampleCurr[0,:]
+                    acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
                 else:
@@ -875,7 +920,7 @@ class POSTBEL:
                     passed = True
                 LikelihoodLast = Likelihood
         print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
-        return np.asarray(accepted)
+        return np.asarray(accepted), np.asarray(acceptedData)
 
     def DataPost(self, Parallelization=[False,None],verbose:bool=False):
         '''DATAPOST is a function that computes the forward model for all the 
@@ -954,6 +999,30 @@ class POSTBEL:
             print('{} models remaining after forward modelling!'.format(newSamplesNb))
         self.nbSamples = newSamplesNb
         return self.SAMPLESDATA
+    
+    def runRejection(self, Parallelization=[False,None], NoiseModel=None):
+        if NoiseModel is None:
+            raise Exception('No noise model provided. Impossible to compute the likelihood')
+        if len(NoiseModel) != len(self.DATA['True'][0,:]):
+            raise Exception('NoiseModel should have the same size as the dataset')
+        self.DataPost(Parallelization=Parallelization)
+        Likelihood = np.zeros(len(self.SAMPLESDATA),)
+        for i, SynData in enumerate(self.SAMPLESDATA):
+            FieldError = NoiseModel
+            DataDiff = self.DATA['True'] - SynData
+            A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
+            B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
+            Likelihood[i] = np.prod(np.multiply(A, B))
+        Order = random.permutation(len(Likelihood))
+        LikelihoodOrder = Likelihood[Order]
+        LikelihoodRatio = LikelihoodOrder[1:]/LikelihoodOrder[:-1]
+        Accepted = [Order[0]]
+        for i, ratio in enumerate(LikelihoodRatio):
+            if ratio > np.random.uniform(0,1):
+                Accepted.append(Order[i+1])
+        ModelsAccepted = self.SAMPLES[Accepted,:]
+        DataAccepted = self.SAMPLESDATA[Accepted,:]
+        return ModelsAccepted, DataAccepted
 
     def ShowPost(self,TrueModel=None):
         '''SHOWPOST shows the posterior parameter distributions (uncorrelated).
@@ -973,12 +1042,13 @@ class POSTBEL:
             pyplot.show(block=False)
         pyplot.show(block=False)
     
-    def ShowPostCorr(self,TrueModel=None,OtherMethod=None):
+    def ShowPostCorr(self,TrueModel=None, OtherMethod=None, OtherInFront=False):
         '''SHOWPOSTCORR shows the posterior parameter distributions (correlated).
 
         The optional arguments are:
             - TrueModel (np.array): an array containing the benchmark model
             - OtherMethod (np.array): an array containing an ensemble of models
+            - OtherInFront (bool): Show the other in front (True) or at the back (False)
         '''
         # Adding the graph with correlations: 
         nbParam = self.SAMPLES.shape[1]
@@ -994,9 +1064,14 @@ class POSTBEL:
                 if i == j: # Diagonal
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
-                    if OtherMethod is not None:
-                        axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
-                    axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
+                    if OtherInFront:
+                        axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
+                        if OtherMethod is not None:
+                            axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
+                    else:
+                        if OtherMethod is not None:
+                            axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
+                        axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
                     if TrueModel is not None:
                         axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
                     if nbParam > 8:
@@ -1010,9 +1085,9 @@ class POSTBEL:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                         else:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b')
+                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b',alpha=0.05, markeredgecolor='none')
                     if TrueModel is not None:
-                        axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                        axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                     if nbParam > 8:
                         axs[i,j].set_xticks([])
                         axs[i,j].set_yticks([])
@@ -1024,9 +1099,9 @@ class POSTBEL:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                         else:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                    axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y')
+                    axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y',alpha=0.5, markeredgecolor='none')
                     if TrueModel is not None:
-                        axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                        axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                     if nbParam > 8:
                         axs[i,j].set_xticks([])
                         axs[i,j].set_yticks([])
@@ -1046,12 +1121,12 @@ class POSTBEL:
                     axs[i,j].xaxis.set_label_position("top")
                     axs[i,j].xaxis.tick_top()
                     axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
-        fig.suptitle("Posterior model space visualization")
+        # fig.suptitle("Posterior model space visualization")
         for ax in axs.flat:
             ax.label_outer()
         pyplot.show(block=False)
     
-    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None]):
+    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None], OtherModels=None, OtherData=None):
         '''SHOWPOSTMODELS shows the sampled posterior models.
 
         The optional argument are:
@@ -1064,6 +1139,9 @@ class POSTBEL:
                     o [True, None]: parallel runs without pool provided
                     o [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                     provided
+            - OtherModels (np.ndarray): an array containing an other set of models
+            - OtherData (np.ndarray): an array containing the simulated data for the
+                                      other set of models
         '''
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
@@ -1073,10 +1151,20 @@ class POSTBEL:
         if RMSE and len(self.SAMPLESDATA)==0:
             print('Computing the forward model for the posterior!')
             self.DataPost(Parallelization=Parallelization)
+        if OtherModels is not None:
+            if (RMSE is True) and (OtherData is None):
+                raise Exception('No data provided for the other set of models')
+        else:
+            OtherData = None
         if RMSE:
             TrueData = self.DATA['True']
-            RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
-            quantiles = np.divide([stats.percentileofscore(RMS,a,'strict') for a in RMS],100)
+            if OtherData is not None:
+                RMS = np.sqrt(np.square(np.subtract(TrueData,OtherData)).mean(axis=-1))
+                RMS_scale = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+            else:
+                RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+                RMS_scale = RMS
+            quantiles = np.divide([stats.percentileofscore(RMS_scale,a,'strict') for a in RMS],100)
             sortIndex = np.argsort(RMS)
             sortIndex = np.flip(sortIndex)
         else:
@@ -1088,9 +1176,13 @@ class POSTBEL:
             nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
             fig = pyplot.figure(figsize=[4*nbParamUnique,10])
             Param = list()
-            Param.append(np.cumsum(self.SAMPLES[:,0:nbLayer-1],axis=1))
+            if OtherModels is not None:
+                ModelsPlot = OtherModels
+            else:
+                ModelsPlot = self.SAMPLES
+            Param.append(np.cumsum(ModelsPlot[:,0:nbLayer-1],axis=1))
             for i in range(nbParamUnique):
-                Param.append(self.SAMPLES[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+                Param.append(ModelsPlot[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
             if TrueModel is not None:
                 TrueMod = list()
                 TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
@@ -1153,21 +1245,21 @@ class POSTBEL:
             nb_inter = 1000
             color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
             cmap_scale = colors.ListedColormap(color_for_scale)
-            scale = [stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+            scale = [stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
-            data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
+            data = np.atleast_2d(np.linspace(np.min(RMS_scale),np.max(RMS_scale),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
             ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
-            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
+            ax_colorbar.set_xticklabels(labels=round_to_n([stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
 
 
         fig.suptitle("Posterior model visualization",fontsize=16)
         pyplot.show(block=False)
     
-    def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None]):
+    def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None], OtherData=None):
         '''SHOWPOSTMODELS shows the sampled posterior models.
 
         The optional argument are:
@@ -1181,16 +1273,24 @@ class POSTBEL:
                     o [True, None]: parallel runs without pool provided
                     o [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                     provided
+            - OtherData (np.ndarray): an array containing the simulated data for the
+                                      other set of models
         '''
         from matplotlib import colors
         # Model the dataset (if not already done)
-        if len(self.SAMPLESDATA)==0:
-            print('Computing the forward model for the posterior!')
-            self.DataPost(Parallelization=Parallelization)
+        if OtherData is None:
+            if len(self.SAMPLESDATA)==0:
+                print('Computing the forward model for the posterior!')
+                self.DataPost(Parallelization=Parallelization)
         if RMSE:
             TrueData = self.DATA['True']
-            RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
-            quantiles = np.divide([stats.percentileofscore(RMS,a,'strict') for a in RMS],100)
+            if OtherData is not None:
+                RMS = np.sqrt(np.square(np.subtract(TrueData,OtherData)).mean(axis=-1))
+                RMS_scale = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+            else:
+                RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+                RMS_scale = RMS
+            quantiles = np.divide([stats.percentileofscore(RMS_scale,a,'strict') for a in RMS],100)
             sortIndex = np.argsort(RMS)
             sortIndex = np.flip(sortIndex)
         else:
@@ -1203,15 +1303,19 @@ class POSTBEL:
         if Prior:
             for j in range(self.nbModels):
                 ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
+        if OtherData is not None:
+            PlotData = OtherData
+        else:
+            PlotData = self.SAMPLESDATA
         if RMSE:
             colormap = matplotlib.cm.get_cmap('jet')
             for j in sortIndex:
-                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:len(self.MODPARAM.forwardFun["Axis"])]),color=colormap(quantiles[j]))
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(PlotData[j,:len(self.MODPARAM.forwardFun["Axis"])]),color=colormap(quantiles[j]))
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
         else:
             for j in sortIndex:
-                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.SAMPLESDATA[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
+                ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(PlotData[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
         if RMSE:
@@ -1220,15 +1324,15 @@ class POSTBEL:
             nb_inter = 1000
             color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
             cmap_scale = colors.ListedColormap(color_for_scale)
-            scale = [stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+            scale = [stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
-            data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
+            data = np.atleast_2d(np.linspace(np.min(RMS_scale),np.max(RMS_scale),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
             ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
-            ax_colorbar.set_xticklabels(labels=round_to_5([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=15,ha='center')
+            ax_colorbar.set_xticklabels(labels=round_to_n([stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=15,ha='center')
         pyplot.show(block=False)
 
     def GetStats(self):

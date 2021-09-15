@@ -34,22 +34,32 @@ def Sampling(prior:list,conditions=None,nbModels:int=1000):
         # Checking that the conditions are in a list
         if not(isalambda(conditions)):
             raise Exception('conditions should be a lambda. conditions is a {}'.format(type(conditions)))
-        # Sampling the models:
-        achieved = False
-        modelsOK = 0
-        while not(achieved):
-            for i in range(nbParam):
-                Models[modelsOK:,i]=prior[i].rvs(size=(nbModels-modelsOK))
-            keep = np.ones((nbModels,))
-            for i in range(nbModels-modelsOK):
-                keep[modelsOK+i] = conditions(Models[modelsOK+i,:])
-            indexKeep = np.where(keep)
-            modelsOK = np.shape(indexKeep)[1]
-            tmp = np.zeros([nbModels,nbParam])
-            tmp[range(modelsOK),:] = np.squeeze(Models[indexKeep,:])
-            Models = tmp
-            if modelsOK == nbModels:
-                achieved = True
+        if nbModels > 1:
+            # Sampling the models:
+            achieved = False
+            modelsOK = 0
+            while not(achieved):
+                for i in range(nbParam):
+                    Models[modelsOK:,i]=prior[i].rvs(size=(nbModels-modelsOK))
+                keep = np.ones((nbModels,))
+                for i in range(nbModels-modelsOK):
+                    keep[modelsOK+i] = conditions(Models[modelsOK+i,:])
+                indexKeep = np.where(keep)
+                modelsOK = np.shape(indexKeep)[1]
+                tmp = np.zeros([nbModels,nbParam])
+                tmp[range(modelsOK),:] = np.squeeze(Models[indexKeep,:])
+                Models = tmp
+                if modelsOK == nbModels:
+                    achieved = True
+        else:
+            acheived = False
+            model = np.zeros(nbParam,)
+            while not(acheived):
+                for i in range(nbParam):
+                    model[i]=prior[i].rvs(size=1)
+                if conditions(model):
+                    Models = [model]
+                    acheived = True
     # Return the sampled models
     return Models
 
@@ -74,7 +84,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
     dimD = POSTBEL.PCA["Data"].n_components_
     # NoiseLevel = [0]*dim
     if TypeMod == "sNMR": # Modeling Gaussian NoiseLevel (noise is an int)
-        if not(isinstance(NoiseLevel,int)):
+        if not(isinstance(NoiseLevel,int)) and not(isinstance(NoiseLevel, float)):
             print('NoiseLevel must be an integer for sNMR NoiseLevel propagation! Converted to default value of 10 nV!')
             NoiseLevel = 10 # in nV
         NoiseLevel *= 1e-9 # Convert to Volts

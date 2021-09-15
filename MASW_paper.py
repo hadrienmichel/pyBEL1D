@@ -5,12 +5,24 @@ imaging (BEL1D) accuracy: the case of surface waves" are performed and explained
 The different graphs that are originating from the python script are also 
 outputted here.
 '''
+from os import pardir
+from matplotlib.lines import Line2D
+import numpy as np
+
+### For reproductibility - Random seed fixed
+RandomSeed = False # If True, use true random seed, else (False), fixed for reproductibility
+if not(RandomSeed):
+    np.random.seed(0) # For reproductibilty
+    from random import seed
+    seed(0)
+### End random seed fixed
+
+
 if __name__=="__main__": # To prevent recomputation when in parallel
 
     from pyBEL1D import BEL1D
     import cProfile # For debugging and timings measurements
     import time # For simple timing measurements
-    import numpy as np # For the initialization of the parameters
     from matplotlib import pyplot # For graphics on post-processing
     from pyBEL1D.utilities import Tools # For further post-processing
     import os
@@ -46,7 +58,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             fig.savefig(join(folder,'Figure{}.png'.format(i)),dpi=dpi, format='png')
             i += 1
 
-    Graphs = False
+    Graphs = True
 
     # Define the model:
     TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])#Thickness and Vs only
@@ -130,75 +142,171 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         if Graphs:
 
             # Show final results analysis:
-            # Graphs for the iterations:
-            Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
-            CurrentGraph = pyplot.gcf()
-            CurrentGraph = CurrentGraph.get_axes()[0]
-            CurrentGraph.plot(Periods, DatasetClean+NoiseEstimate,'k--')
-            CurrentGraph.plot(Periods, DatasetClean-NoiseEstimate,'k--')
-            CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
-            CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
-            CurrentGraph.plot(Periods, Dataset,'k')
-            Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS)
-            Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)#,Parallelization=[True, pool])
-            # Graph for the CCA space parameters loads
-            _, ax = pyplot.subplots()
-            B = PrebelInit.CCA.y_loadings_
-            B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
-            ind =  np.asarray(range(B.shape[0]))+1
-            ax.bar(x=ind,height=B[0],label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][0]))
-            for i in range(B.shape[0]+1)[1:-1]:
-                ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][i]))
-            box = ax.get_position()
-            ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
-            ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
-            ax.set_ylabel('Relative contribution')
-            ax.set_xlabel('CCA dimension')
-            ax.set_title('First iteration')
-            pyplot.show(block=False)
+            if False: # First iteration results?
+                PostbelInit = BEL1D.POSTBEL(PrebelInit)
+                PostbelInit.run(Dataset=Dataset, nbSamples=nbModelsBase,NoiseModel=NoiseEstimate)
+                PostbelInit.DataPost(Parallelization=ppComp)
+                PostbelInit.ShowPostCorr(TrueModel=TrueModel, OtherMethod=PrebelInit.MODELS)
+                PostbelInit.ShowDataset(RMSE=True, Prior=True)
+                PostbelInit.ShowPostModels(TrueModel=TrueModel, RMSE=True)
+            if False: # Comparison iterations?
+                # Graphs for the iterations:
+                Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
+                CurrentGraph = pyplot.gcf()
+                CurrentGraph = CurrentGraph.get_axes()[0]
+                CurrentGraph.plot(Periods, DatasetClean+NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, DatasetClean-NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, Dataset,'k')
+                Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS)
+                Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)#,Parallelization=[True, pool])
+                # Graph for the CCA space parameters loads
+                _, ax = pyplot.subplots()
+                B = PrebelInit.CCA.y_loadings_
+                B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
+                ind =  np.asarray(range(B.shape[0]))+1
+                ax.bar(x=ind,height=B[0],label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][0]))
+                for i in range(B.shape[0]+1)[1:-1]:
+                    ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(PrebelInit.MODPARAM.paramNames["NamesSU"][i]))
+                box = ax.get_position()
+                ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
+                ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
+                ax.set_ylabel('Relative contribution')
+                ax.set_xlabel('CCA dimension')
+                ax.set_title('First iteration')
+                pyplot.show(block=False)
 
-            _, ax = pyplot.subplots()
-            B = Postbel.CCA.y_loadings_
-            B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
-            ind =  np.asarray(range(B.shape[0]))+1
-            ax.bar(x=ind,height=B[0],label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][0]))
-            for i in range(B.shape[0]+1)[1:-1]:
-                ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
-            box = ax.get_position()
-            ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
-            ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
-            ax.set_ylabel('Relative contribution')
-            ax.set_xlabel('CCA dimension')
-            ax.set_title('Last iteration')
-            pyplot.show(block=False)
+                _, ax = pyplot.subplots()
+                B = Postbel.CCA.y_loadings_
+                B = np.divide(np.abs(B).T,np.repeat(np.reshape(np.sum(np.abs(B),axis=0),(1,B.shape[0])),B.shape[0],axis=0).T)
+                ind =  np.asarray(range(B.shape[0]))+1
+                ax.bar(x=ind,height=B[0],label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][0]))
+                for i in range(B.shape[0]+1)[1:-1]:
+                    ax.bar(x=ind,height=B[i],bottom=np.reshape(np.sum(B[0:i],axis=0),(B.shape[0],)),label=r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+                box = ax.get_position()
+                ax.set_position([box.x0, box.y0, box.width, box.height*0.8])
+                ax.legend(loc='upper center', bbox_to_anchor=(0.5, 1.4), ncol=3)
+                ax.set_ylabel('Relative contribution')
+                ax.set_xlabel('CCA dimension')
+                ax.set_title('Last iteration')
+                pyplot.show(block=False)
+            
+            if True: # Comparison MCMC/rejection?
+                # Compare the results to McMC results:
+                McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
+                # We consider a burn-in period of 50%:
+                DREAM=McMC[int(len(McMC)/2):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
+                # DREAM = np.unique(DREAM,axis=0)
+                Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True)
 
-            # Compare the results to McMC results:
-            McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
-            # We consider a burn-in period of 50%:
-            DREAM=McMC[int(len(McMC)/2):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
-            # DREAM = np.unique(DREAM,axis=0)
-            Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM)
+                ## Testing the McMC algorithm after BEL1D with IPR:
+                print('Executing MCMC')
+                ## Executing MCMC on the prior:
+                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=10, nbSamples=50000, NoiseModel=NoiseEstimate)
+                ## Extracting the after burn-in models (last 50%)
+                MCMC = []
+                MCMC_Data = []
+                for i in range(MCMC_Init.shape[0]):
+                    for j in np.arange(int(MCMC_Init.shape[1]/2),MCMC_Init.shape[1]):
+                        MCMC.append(np.squeeze(MCMC_Init[i,j,:]))
+                        MCMC_Data.append(np.squeeze(MCMC_Init_Data[i,j,:]))
+                MCMC_Init = np.asarray(MCMC)
+                MCMC_Init_Data = np.asarray(MCMC_Data)
+                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Init)
+                ## Exectuing MCMC on the posterior:
+                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)
+                ## Extracting the after burn-in models (last 50%)
+                MCMC = []
+                MCMC_Data = []
+                for i in range(MCMC_Final.shape[0]):
+                    for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
+                        MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
+                        MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
+                MCMC_Final = np.asarray(MCMC)
+                MCMC_Final_Data = np.asarray(MCMC_Data)
+                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Final)
 
-            ## Testing the McMC algorithm after BEL1D with IPR:
-            print('Executing MCMC')
-            ## Executing MCMC on the prior:
-            MCMC_Init = PrebelInit.runMCMC(Dataset=Dataset, nbChains=10, nbSamples=50000, NoiseModel=NoiseEstimate)
-            ## Extracting the after burn-in models (last 50%)
-            MCMC = []
-            for i in range(MCMC_Init.shape[0]):
-                for j in np.arange(int(MCMC_Init.shape[1]/2),MCMC_Init.shape[1]):
-                    MCMC.append(np.squeeze(MCMC_Init[i,j,:]))
-            MCMC_Init = np.asarray(MCMC)
-            Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Init)
-            ## Exectuing MCMC on the posterior:
-            MCMC_Final = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)
-            ## Extracting the after burn-in models (last 50%)
-            MCMC = []
-            for i in range(MCMC_Final.shape[0]):
-                for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
-                    MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
-            MCMC_Final = np.asarray(MCMC)
-            Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Final)
+                ModelsRejection, DataRejection = Postbel.runRejection(Parallelization=ppComp,NoiseModel=NoiseEstimate)
+                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=ModelsRejection)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=ModelsRejection, OtherData=DataRejection)
+
+                # Adding the graph with correlations: 
+                nbParam = Postbel.SAMPLES.shape[1]
+                fig = pyplot.figure(figsize=[10,10])# Creates the figure space
+                axs = fig.subplots(nbParam, nbParam)
+                for i in range(nbParam):
+                    for j in range(nbParam):
+                        if i == j: # Diagonal
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            axs[i,j].hist(Postbel.SAMPLES[:,j],color='royalblue',density=True,alpha=0.75) # Plot the histogram for the given variable
+                            axs[i,j].hist(MCMC_Init[:,j],color='darkorange',density=True,alpha=0.75)
+                            axs[i,j].hist(MCMC_Final[:,j],color='limegreen',density=True,alpha=0.75)
+                            axs[i,j].hist(ModelsRejection[:,j],color='peru',density=True,alpha=0.75)
+                            if TrueModel is not None:
+                                axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        elif i > j: # Below the diagonal -> Scatter plot
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            if j != nbParam-1:
+                                if i != nbParam-1:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                                else:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None')
+                            if TrueModel is not None:
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        elif MCMC_Init is not None:
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            if j != nbParam-1:
+                                if i != 0:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                                else:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='darkorange', marker = '.', linestyle='None')
+                            axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None')
+                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='peru', marker = '.', linestyle='None')
+                            if TrueModel is not None:
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        else:
+                            axs[i,j].set_visible(False)
+                        if j == 0: # First column of the graph
+                            if ((i==0)and(j==0)) or not(i==j):
+                                axs[i,j].set_ylabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+                        if i == nbParam-1: # Last line of the graph
+                            axs[i,j].set_xlabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][j]))
+                        if j == nbParam-1:
+                            if not(i==j):
+                                axs[i,j].yaxis.set_label_position("right")
+                                axs[i,j].yaxis.tick_right()
+                                axs[i,j].set_ylabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+                        if i == 0:
+                            axs[i,j].xaxis.set_label_position("top")
+                            axs[i,j].xaxis.tick_top()
+                            axs[i,j].set_xlabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][j]))
+                # fig.suptitle("Posterior model space visualization")
+                import matplotlib.patches as mpatches
+                patch0 = mpatches.Patch(facecolor='red', edgecolor='#000000')
+                patch1 = mpatches.Patch(facecolor='royalblue', edgecolor='#000000') #this will create a red bar with black borders, you can leave out edgecolor if you do not want the borders
+                patch2 = mpatches.Patch(facecolor='darkorange', edgecolor='#000000')
+                patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
+                patch4 = mpatches.Patch(facecolor='peru', edgecolor='#000000')
+                fig.legend(handles=[patch0, patch1, patch2, patch3, patch4],labels=["Benchmark", "BEL1D + IPR", "MCMc", "BEL1D + IPR + MCMc", "BEL1D + IPR + Rejection"], loc="upper center")
+                for ax in axs.flat:
+                    ax.label_outer()
+                pyplot.show(block=False)
+
             # Stop execution to display the graphs:
             # multipage('Benchmark.pdf',dpi=300)
             multiPngs('BenchmarkFigs')
@@ -207,7 +315,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         # Testing the model with more layers (4, 5 and 6)
         ##########
         # We need to rebuild the MODELSET structure since the forward cannot be exctly the same (more layers means that the fixed parameters must change as well)
-        TestOtherNbLayers = True
+        TestOtherNbLayers = False
         if TestOtherNbLayers:
             Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)
             CurrentGraph = pyplot.gcf()
@@ -354,8 +462,16 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS)
         Postbel.ShowPostModels(RMSE=True)
         Postbel.ShowDataset(RMSE=True, Prior=True)
-        ax = pyplot.gca()
-        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k') # Adding the field dataset on to of the graph
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,':k')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on to of the graph
         fig, ax = pyplot.subplots()
         ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior')
         ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior')
@@ -365,6 +481,42 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ax.set_xlabel('Depth to bedrock [m]')
         ax.set_ylabel('Probability estimation [/]')
         ax.legend()
+        RejectionModels, RejectionData = Postbel.runRejection(NoiseModel=NoiseEstimate)
+        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionData)
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,':w')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'w',linewidth=2) # Adding the field dataset on to of the graph
+
+        MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)
+        ## Extracting the after burn-in models (last 50%)
+        MCMC = []
+        MCMC_Data = []
+        for i in range(MCMC_Final.shape[0]):
+            for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
+                MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
+                MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
+        MCMC_Final = np.asarray(MCMC)
+        MCMC_Final_Data = np.asarray(MCMC_Data)
+        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=MCMC_Final_Data)
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,':k')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on to of the graph
+
+        pyplot.show(block=False)
         # multipage('Mirandola.pdf',dpi=300)
         multiPngs('MirandolaFigs')
         pyplot.show()
