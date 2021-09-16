@@ -1005,6 +1005,7 @@ class POSTBEL:
             raise Exception('No noise model provided. Impossible to compute the likelihood')
         if len(NoiseModel) != len(self.DATA['True'][0,:]):
             raise Exception('NoiseModel should have the same size as the dataset')
+        timeIn = time.time()
         self.DataPost(Parallelization=Parallelization)
         Likelihood = np.zeros(len(self.SAMPLESDATA),)
         for i, SynData in enumerate(self.SAMPLESDATA):
@@ -1022,6 +1023,7 @@ class POSTBEL:
                 Accepted.append(Order[i+1])
         ModelsAccepted = self.SAMPLES[Accepted,:]
         DataAccepted = self.SAMPLESDATA[Accepted,:]
+        print(f'Rejection sampling on POSTBEL executed in {time.time()-timeIn} seconds.')
         return ModelsAccepted, DataAccepted
 
     def ShowPost(self,TrueModel=None):
@@ -1042,13 +1044,15 @@ class POSTBEL:
             pyplot.show(block=False)
         pyplot.show(block=False)
     
-    def ShowPostCorr(self,TrueModel=None, OtherMethod=None, OtherInFront=False):
+    def ShowPostCorr(self,TrueModel=None, OtherMethod=None, OtherInFront=False, alpha=[1, 1]):
         '''SHOWPOSTCORR shows the posterior parameter distributions (correlated).
 
         The optional arguments are:
             - TrueModel (np.array): an array containing the benchmark model
             - OtherMethod (np.array): an array containing an ensemble of models
             - OtherInFront (bool): Show the other in front (True) or at the back (False)
+            - alpha (list or int): Transparancy value for the points. Default is 1 for
+                                   both BEL1D and OtherMethod. ([BEL1D, OtherMethod])
         '''
         # Adding the graph with correlations: 
         nbParam = self.SAMPLES.shape[1]
@@ -1057,6 +1061,8 @@ class POSTBEL:
         if (OtherMethod is not None) and (OtherMethod.shape[1]!=nbParam):
             print('OtherMethod is not a valid argument!')
             OtherMethod = None
+        elif not(isinstance(alpha, list)):
+            alpha = [alpha, alpha]
         fig = pyplot.figure(figsize=[10,10])# Creates the figure space
         axs = fig.subplots(nbParam, nbParam)
         for i in range(nbParam):
@@ -1085,7 +1091,7 @@ class POSTBEL:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                         else:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b',alpha=0.05, markeredgecolor='none')
+                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b',alpha=alpha[0], markeredgecolor='none')
                     if TrueModel is not None:
                         axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                     if nbParam > 8:
@@ -1099,7 +1105,7 @@ class POSTBEL:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                         else:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                    axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y',alpha=0.5, markeredgecolor='none')
+                    axs[i,j].plot(OtherMethod[:,j],OtherMethod[:,i],'.y',alpha=alpha[1], markeredgecolor='none')
                     if TrueModel is not None:
                         axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                     if nbParam > 8:
@@ -1124,6 +1130,7 @@ class POSTBEL:
         # fig.suptitle("Posterior model space visualization")
         for ax in axs.flat:
             ax.label_outer()
+        pyplot.tight_layout()
         pyplot.show(block=False)
     
     def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None], OtherModels=None, OtherData=None):

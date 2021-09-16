@@ -49,7 +49,7 @@ if __name__ == '__main__':
         PostbelLast = LoadPOSTBEL('./IPR_Results/IPR_{}.postbel'.format(nbIter-2))# Prebel and 0
         PrebelInit = LoadPREBEL('./IPR_Results/IPR.prebel')
         PostbelLast.ShowPostModels(TrueModel=SyntheticBenchmarkSNMR, RMSE=True)#, Best=100)
-        PostbelLast.ShowPostCorr(TrueModel=SyntheticBenchmarkSNMR, OtherMethod=PrebelInit.MODELS)
+        PostbelLast.ShowPostCorr(TrueModel=SyntheticBenchmarkSNMR, OtherMethod=PrebelInit.MODELS, alpha=[0.05, 0.5])
         plt.tight_layout()
 
         ## Download the 1st iteration results and display the graphs:
