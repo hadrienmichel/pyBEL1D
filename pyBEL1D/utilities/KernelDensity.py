@@ -348,6 +348,7 @@ class KDE:
                         ax_hist.plot(np.squeeze(self.Dist[i][1]),np.squeeze(self.Dist[i][0]),'k')
                         ax_hist.set_xlabel('P (/)')
                         ax_hist.set_ylabel('$M^c_{}$'.format(str(i+1)))
+                        ax_hist.set_ylim(ax.get_ylim())
                 pyplot.show(block=False)
             else:
                 raise Exception('No KDE field at dimension {}'.format(i))

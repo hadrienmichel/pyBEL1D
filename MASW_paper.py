@@ -207,19 +207,25 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 # We consider a burn-in period of 50%:
                 DREAM=McMC[int(len(McMC)/2):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
                 # DREAM = np.unique(DREAM,axis=0)
-                print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM:{}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
+                print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM: {}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
                 Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True, alpha=[0.02, 0.06]) # They are 3 times more models for BEL1D than DREAM
             
-            if True: # Comparison MCMC/rejection?
+            if False: # Comparison MCMC/rejection?
+                ### For reproductibility - Random seed fixed
+                if not(RandomSeed):
+                    np.random.seed(0) # For reproductibilty
+                    from random import seed
+                    seed(0)
+                ### End random seed fixed
                 ## Testing the McMC algorithm after BEL1D with IPR:
                 print('Executing MCMC on PREBEL . . .')
                 ## Executing MCMC on the prior:
-                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=10, NoiseModel=NoiseEstimate)# 10 independant chains of 50000 models
+                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=20, NoiseModel=NoiseEstimate)# 10 independant chains of 50000 models
                 ## Extracting the after burn-in models (last 50%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Init.shape[0]):
-                    for j in np.arange(int(MCMC_Init.shape[1]/2),MCMC_Init.shape[1]):
+                    for j in np.arange(int(MCMC_Init.shape[1]/4*3),MCMC_Init.shape[1]):
                         MCMC.append(np.squeeze(MCMC_Init[i,j,:]))
                         MCMC_Data.append(np.squeeze(MCMC_Init_Data[i,j,:]))
                 MCMC_Init = np.asarray(MCMC)
@@ -227,12 +233,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Init)
                 ## Exectuing MCMC on the posterior:
                 print('Executing MCMC on POSTBEL . . .')
-                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)# 10 independant chains of 10000 models
+                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=20, NoiseModel=NoiseEstimate)# 10 independant chains of 10000 models
                 ## Extracting the after burn-in models (last 50%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Final.shape[0]):
-                    for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
+                    for j in np.arange(int(MCMC_Final.shape[1]/4*3),MCMC_Final.shape[1]):
                         MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
                         MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
                 MCMC_Final = np.asarray(MCMC)
@@ -253,6 +259,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                         if i == j: # Diagonal
                             if i != nbParam-1:
                                 axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            axs[i,j].hist(PrebelInit.MODELS[:,j], color='gold',density=True)
                             axs[i,j].hist(Postbel.SAMPLES[:,j],color='royalblue',density=True,alpha=0.75) # Plot the histogram for the given variable
                             axs[i,j].hist(MCMC_Init[:,j],color='darkorange',density=True,alpha=0.75)
                             axs[i,j].hist(MCMC_Final[:,j],color='limegreen',density=True,alpha=0.75)
@@ -270,9 +277,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                                 else:
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None')
+                            axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
+                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='peru', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
                             if TrueModel is not None:
-                                axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                             if nbParam > 8:
                                 axs[i,j].set_xticks([])
                                 axs[i,j].set_yticks([])
@@ -284,11 +293,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                                 else:
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='darkorange', marker = '.', linestyle='None')
-                            axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None')
-                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='peru', marker = '.', linestyle='None')
+                            axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
+                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='darkorange', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
                             if TrueModel is not None:
-                                axs[i,j].plot(TrueModel[j],TrueModel[i],'.r')
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                             if nbParam > 8:
                                 axs[i,j].set_xticks([])
                                 axs[i,j].set_yticks([])
@@ -315,9 +324,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 patch2 = mpatches.Patch(facecolor='darkorange', edgecolor='#000000')
                 patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
                 patch4 = mpatches.Patch(facecolor='peru', edgecolor='#000000')
-                fig.legend(handles=[patch0, patch1, patch2, patch3, patch4],labels=["Benchmark", "BEL1D + IPR", "MCMc", "BEL1D + IPR + MCMc", "BEL1D + IPR + Rejection"], loc="upper center")
+                patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
+                fig.legend(handles=[patch0, patch5, patch1, patch2, patch3, patch4],labels=["Benchmark", "Prior", "BEL1D + IPR", "MCMc", "BEL1D + IPR + MCMc", "BEL1D + IPR + Rejection"], loc="upper center", ncol=6)
                 for ax in axs.flat:
                     ax.label_outer()
+                pyplot.tight_layout(rect=(0,0,1,0.975))
                 pyplot.show(block=False)
 
             # Stop execution to display the graphs:
@@ -330,6 +341,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         # We need to rebuild the MODELSET structure since the forward cannot be exctly the same (more layers means that the fixed parameters must change as well)
         TestOtherNbLayers = False
         if TestOtherNbLayers:
+            ### For reproductibility - Random seed fixed
+            if not(RandomSeed):
+                np.random.seed(0) # For reproductibilty
+                from random import seed
+                seed(0)
+            ### End random seed fixed
             Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)
             CurrentGraph = pyplot.gcf()
             CurrentAxes = CurrentGraph.get_axes()[0]

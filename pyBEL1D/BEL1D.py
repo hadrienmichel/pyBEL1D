@@ -653,7 +653,7 @@ class PREBEL:
                 ## Computing the likelihood from a data misfit:
                 if self.MODPARAM.cond(sampleCurr):
                     try:
-                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0,:])
+                        SynData = self.MODPARAM.forwardFun['Fun'](sampleCurr[0])
                         DataDiff = Dataset - SynData
                         FieldError = NoiseModel
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
@@ -669,7 +669,7 @@ class PREBEL:
                 ratio = Likelihood/LikelihoodLast
                 if ratio > np.random.uniform(0,1):
                     sampleLast = sampleCurr
-                    accepted[j,i,:] = sampleCurr[0,:]
+                    accepted[j,i,:] = sampleCurr[0]
                     acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
