@@ -15,6 +15,7 @@
 #   - (Done) Check KDE behaviour whit outliers (too long computations and useless?)
 
 # Importing custom libraries
+from copy import deepcopy
 from .utilities import Tools
 from .utilities.KernelDensity import KDE
 #Importing common libraries
@@ -163,7 +164,6 @@ class MODELSET:
                 - Decay time (T_2^*) in sec
 
         """
-        import numpy.matlib
         if prior is None:
             prior = np.array([[2.5, 7.5, 0.035, 0.10, 0.005, 0.350], [0, 0, 0.10, 0.30, 0.005, 0.350]])
             Kernel = "Data/sNMR/KernelTest.mrsk"
@@ -446,7 +446,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,MixingRatio:float=None,Parallelization:list=[False,None],verbose:bool=False):
+    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Parallelization:list=[False,None],verbose:bool=False):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -455,17 +455,12 @@ class PREBEL:
         And optional arguments are:
             - Dataset (np.array): the field dataset
             - NoiseModel (list): the list defining the noise model (see dedicated functions)
-            - Simplified (bool): ramdom sampling of a number of models from componded prior or not
-                                 (default=False)
-            - RemoveOutlier (bool): remove ourliers for the KDE computation (default=False)
-            - nbMax (int): the number of random samples to keep if Simplified=True (default=100000)
-            - MixingRatio (float): mixing proportion for the prior and posterior (keep constant 
-                                   accross iterations, default = 1.0)
             - Parallelization (list): parallelization instructions
                     o [False, _]: no parallel runs (default)
                     o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided 
+            - verbose (bool): output progresses messages (True) or not (False - default)
 
         '''
         # if (Dataset is None) and (NoiseModel is not None):
@@ -473,102 +468,13 @@ class PREBEL:
         # 1) Initialize the Prebel class object
         Modelset = POSTBEL.MODPARAM # A MODELSET class object
         PrebelNew = cls(Modelset)
-        # 2) Inject the samples from postbel:
-        # ModelsKeep = POSTBEL.SAMPLES
         # 2) Running the forward model
         if not(len(POSTBEL.SAMPLESDATA) != 0):
             # For DC, sometimes, the code will return an error --> need to remove the model from the prior
             POSTBEL.DataPost(Parallelization=Parallelization)
-            # indexCurr = 0
-            # while True:
-            #     try:
-            #         tmp = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[indexCurr,:])
-            #         break
-            #     except:
-            #         indexCurr += 1
-            #         if indexCurr > PrebelNew.nbModels:
-            #             raise Exception('The forward modelling failed!')
-            
-            # if Parallelization[0]:
-            #     # We create a partial function that has a fixed fowrard function. The remaining arguments are :
-            #     #   - Model: a numpy array containing the model to compute
-            #     # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
-            #     functionParallel = partial(ForwardParallelFun, function=PrebelNew.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
-            #     inputs = [ModelsKeep[i,:] for i in range(np.size(ModelsKeep,axis=0))]
-            #     if Parallelization[1] is not None:
-            #         pool = Parallelization[1]
-            #         terminatePool = False
-            #     else:
-            #         pool = pp.ProcessPool(mp.cpu_count()) # Create the pool for paralelization
-            #         Parallelization[1] = pool
-            #         terminatePool = True
-            #     pool = mp.Pool(mp.cpu_count()) # Create the pool for paralelization
-            #     outputs = pool.map(functionParallel,inputs)
-            #     # pool.close()
-            #     # pool.join()
-            #     ForwardKeep = np.vstack(outputs) #ForwardParallel
-            #     notComputed = [i for i in range(np.size(ModelsKeep,axis=0)) if ForwardKeep[i,0] is None]
-            #     ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-            #     ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-            #     newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-            # else:
-            #     ForwardKeep = np.zeros((np.size(ModelsKeep,axis=0),len(tmp)))
-            #     notComputed = []
-            #     for i in range(np.size(ModelsKeep,axis=0)):
-            #         # print(i)
-            #         try:
-            #             ForwardKeep[i,:] = PrebelNew.MODPARAM.forwardFun["Fun"](ModelsKeep[i,:])
-            #         except:
-            #             ForwardKeep[i,:] = [None]*len(tmp)
-            #             notComputed.append(i)
-            #     # Getting the uncomputed models and removing them:
-            #     ModelsKeep = np.delete(ModelsKeep,notComputed,0)
-            #     ForwardKeep = np.delete(ForwardKeep,notComputed,0)
-            #     newModelsNb = np.size(ModelsKeep,axis=0) # Get the number of models remaining
-            # print('{} models remaining after forward modelling!'.format(newModelsNb))
-        #     PrebelNew.MODELS = np.append(ModelsKeep,PREBEL.MODELS,axis=0)
-        #     PrebelNew.FORWARD = np.append(ForwardKeep,PREBEL.FORWARD,axis=0)
-        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-        # else: # The posterior datasets had already been computed
         PrebelNew.MODELS = np.append(PREBEL.MODELS,POSTBEL.SAMPLES,axis=0)
         PrebelNew.FORWARD = np.append(PREBEL.FORWARD,POSTBEL.SAMPLESDATA,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-        # if Rejection and Dataset is not None: # Rejection only if true dataset known
-        #     # Compute the RMSE
-        #     RMSE = np.sqrt(np.square(np.subtract(Dataset,PrebelNew.FORWARD)).mean(axis=-1))
-        #     RMSE_max = np.quantile(RMSE,0.95) # We reject the 1% worst fit
-        #     idxDelete = np.greater_equal(RMSE,RMSE_max)
-        #     PrebelNew.MODELS = np.delete(PrebelNew.MODELS,np.where(idxDelete),0)
-        #     PrebelNew.FORWARD = np.delete(PrebelNew.FORWARD,np.where(idxDelete),0)
-        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
-        # if Simplified and (PrebelNew.nbModels>nbMax):
-        #     import random
-        #     # Using the mixing ratio to ensure a correct representation of all the models in the prior
-        #     if MixingRatio is not None:
-        #         # We need to keep half of the models from the first half of the prior and half from the second half
-        #         samp1 = np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
-        #         samp2 = nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])
-        #         print('Sampling 1: {} \nSampling 2: {}'.format(samp1,samp2))
-        #         if samp2 > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
-        #             samp2 = PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))
-        #             samp1 = nbMax - samp2
-        #             if samp1 > int(np.ceil(PrebelNew.nbModels/2)):
-        #                 raise Exception('Impossible to use this proportion with current sample set!')
-        #         # print('Nb To Sample 1 : {} out of {}'.format(np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),int(np.ceil(PrebelNew.nbModels/2))))
-        #         # if np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > int(np.ceil(PrebelNew.nbModels/2)):
-        #         #     raise Exception('Error')
-        #         idxKeep1 = np.asarray(random.sample(range(int(np.ceil(PrebelNew.nbModels/2))), samp1))#np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))])))
-        #         # print('Nb To Sample 2 : {} out of {}'.format(nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]),PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))))
-        #         # if nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]) > PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2)):
-        #         #     raise Exception('Error')
-        #         idxKeep2 = np.asarray(random.sample(range(PrebelNew.nbModels-int(np.ceil(PrebelNew.nbModels/2))), samp2))  + int(np.ceil(PrebelNew.nbModels/2))#nbMax-np.min([int(np.ceil(MixingRatio*nbMax)),int(np.ceil(PrebelNew.nbModels/2))]))) + int(np.ceil(PrebelNew.nbModels/2))
-        #         idxKeep = np.concatenate((idxKeep1,idxKeep2))
-        #     else:
-        #         idxKeep = random.sample(range(PrebelNew.nbModels), nbMax)
-        #     PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
-        #     PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
-        #     PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
-        #     print('Prior simplified to {} random samples'.format(nbMax))
         # 3) PCA on data (and optionally model):
         reduceModels = False
         varRepresented = 0.90
@@ -624,7 +530,21 @@ class PREBEL:
         #     pool.terminate()
         return PrebelNew
     
-    def runMCMC(self, Dataset=None, nbSamples=50000, nbChains=10, NoiseModel=None):
+    def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=50000, nbChains:int=10, verbose:bool=False):
+        ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
+        on the prior model space (PREBEL). 
+
+        It takes as arguments:
+            - Dataset (np.array): the field dataset
+            - NoiseModel (np.array): the list defining the noise model
+            - nbSamples (int): the number of models to sample per chains (larger for larger 
+                               priors). The default value is 50000
+            - nbChains (int): the number of chains to run. The larger, the better to avoid 
+                              remaining in a local optimum. The default value is 10.
+            - verbose (bool): output progresses messages (True) or not (False - default)
+
+        It returns 2 arrays containing the samples models and the associated datasets.
+        '''
         if Dataset is None:
             raise Exception('No Dataset given to compute likelihood')
         if len(Dataset) != self.FORWARD.shape[1]:
@@ -685,7 +605,8 @@ class PREBEL:
                     # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
                     passed = True
                 LikelihoodLast = Likelihood
-        print(f'MCMC on PREBEL executed in {time.time()-timeIn} seconds.')
+        if verbose:
+            print(f'MCMC on PREBEL executed in {time.time()-timeIn} seconds.')
         return np.asarray(accepted), np.asarray(acceptedData)
     
     def ShowPreModels(self,TrueModel=None):
@@ -853,7 +774,20 @@ class POSTBEL:
                     raise Exception('Impossible to sample models in the current prior under reasonable timings!')
             self.SAMPLES = Samples
     
-    def runMCMC(self, nbSamples=10000, nbChains=10, NoiseModel=None):
+    def runMCMC(self, NoiseModel=None, nbSamples=10000, nbChains=10, verbose:bool=False):
+        ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
+        on the last posterior model space (POSTBEL). 
+
+        It takes as arguments:
+            - NoiseModel (np.array): the list defining the noise model
+            - nbSamples (int): the number of models to sample per chains (larger for larger 
+                               priors). The default value is 50000
+            - nbChains (int): the number of chains to run. The larger, the better to avoid 
+                              remaining in a local optimum. The default value is 10.
+            - verbose (bool): output progresses messages (True) or not (False - default)
+
+        It returns 2 arrays containing the samples models and the associated datasets.
+        '''
         if NoiseModel is None:
             raise Exception('No noise model provided. Impossible to compute the likelihood')
         if len(NoiseModel) != len(self.DATA['True'][0,:]):
@@ -919,39 +853,49 @@ class POSTBEL:
                     # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
                     passed = True
                 LikelihoodLast = Likelihood
-        print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
+        if verbose:
+            print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
         return np.asarray(accepted), np.asarray(acceptedData)
 
-    def DataPost(self, Parallelization=[False,None],verbose:bool=False):
+    def DataPost(self, Parallelization=[False,None],verbose:bool=False, OtherModels=None):
         '''DATAPOST is a function that computes the forward model for all the 
         models sampled from the posterior.
 
-        The optional argument Parallelization (list) can take as values:
-            - [False, _]: no parallel runs (default)
-            - [True, None]: parallel runs without pool provided
-            - [True, pool]: parallel runs with pool (defined by pathos.pools) 
-                            provided 
+        The optional arguments are:
+            - Parallelization (list): parallelization instructions
+                    o [False, _]: no parallel runs (default)
+                    o [True, None]: parallel runs without pool provided
+                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                                    provided 
+            - verbose (bool): output progresses messages (True) or not (False - default)
         '''
-        # TODO: add option to parallelize in calling functions
-        if len(self.SAMPLESDATA)!=0:# The dataset is already simulated
-            print('Forward modelling already conducted!')
-            return self.SAMPLESDATA
+        if OtherModels is not None:
+            SAMPLES = OtherModels
+            SAMPLESDATA = []
+        else:
+            SAMPLES = self.SAMPLES
+            SAMPLESDATA = self.SAMPLESDATA
+        nbSamples = np.size(SAMPLES,axis=0)
+        if len(SAMPLESDATA)!=0:# The dataset is already simulated
+            if verbose:
+                print('Forward modelling already conducted!')
+            return SAMPLESDATA
         indexCurr = 0
         while True:
             try:
-                tmp = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[indexCurr,:])
+                tmp = self.MODPARAM.forwardFun["Fun"](SAMPLES[indexCurr,:])
                 break
             except:
                 indexCurr += 1
-                if indexCurr > self.nbModels:
+                if indexCurr > nbSamples:
                     raise Exception('The forward modelling failed!')
-        self.SAMPLESDATA = np.zeros((self.nbSamples,len(tmp)))
+        SAMPLESDATA = np.zeros((nbSamples,len(tmp)))
         if Parallelization[0]:
             # We create a partial function that has a fixed fowrard function. The remaining arguments are :
             #   - Model: a numpy array containing the model to compute
             # It returns the Forward Computed, either a list of None or a list of values corresponding to the forward
             functionParallel = partial(ForwardParallelFun, function=self.MODPARAM.forwardFun["Fun"], nbVal=len(tmp))
-            inputs = [self.SAMPLES[i,:] for i in range(self.nbSamples)]
+            inputs = [SAMPLES[i,:] for i in range(nbSamples)]
             if Parallelization[1] is not None:
                 pool = Parallelization[1]
                 terminatePool = False
@@ -962,45 +906,48 @@ class POSTBEL:
             outputs = pool.map(functionParallel,inputs)
             # pool.close()
             # pool.join()
-            self.SAMPLESDATA = np.vstack(outputs) #ForwardParallel
-            notComputed = [i for i in range(self.nbSamples) if self.SAMPLESDATA[i,0] is None]
-            self.SAMPLES = np.array(np.delete(self.SAMPLES,notComputed,0),dtype=np.float64)
-            self.SAMPLESDATA = np.array(np.delete(self.SAMPLESDATA,notComputed,0),dtype=np.float64)
-            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            SAMPLESDATA = np.vstack(outputs) #ForwardParallel
+            notComputed = [i for i in range(nbSamples) if SAMPLESDATA[i,0] is None]
+            SAMPLES = np.array(np.delete(SAMPLES,notComputed,0),dtype=np.float64)
+            SAMPLESDATA = np.array(np.delete(SAMPLESDATA,notComputed,0),dtype=np.float64)
+            newSamplesNb = np.size(SAMPLES,axis=0) # Get the number of models remaining
             if terminatePool:
                 pool.terminate()
         else:
             notComputed = []
-            for i in range(self.nbSamples):
+            for i in range(nbSamples):
                 # print(i)
                 try:
-                    self.SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](self.SAMPLES[i,:])
+                    SAMPLESDATA[i,:] = self.MODPARAM.forwardFun["Fun"](SAMPLES[i,:])
                 except:
-                    self.SAMPLESDATA[i,:] = [None]*len(tmp)
+                    SAMPLESDATA[i,:] = [None]*len(tmp)
                     notComputed.append(i)
             # Getting the uncomputed models and removing them:
-            self.SAMPLES = np.delete(self.SAMPLES,notComputed,0)
-            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,notComputed,0)
-            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            SAMPLES = np.delete(SAMPLES,notComputed,0)
+            SAMPLESDATA = np.delete(SAMPLESDATA,notComputed,0)
+            newSamplesNb = np.size(SAMPLES,axis=0) # Get the number of models remaining
         if self.MODPARAM.method == "DC":
             # In the case of surface waves, the forward model sometimes provide datasets that have a sharp
             # transition that is not possible in practice. We therefore need to remove those models. They 
             # are luckily easy to identify. Their maximum variabilty is way larger than the other models.
-            VariabilityMax = np.max(np.abs(self.SAMPLESDATA[:,1:]-self.SAMPLESDATA[:,:-1]),axis=1)
+            VariabilityMax = np.max(np.abs(SAMPLESDATA[:,1:]-SAMPLESDATA[:,:-1]),axis=1)
             from scipy.special import erfcinv # https://github.com/PyCQA/pylint/issues/3744 pylint: disable=no-name-in-module
             c = -1/(mt.sqrt(2)*erfcinv(3/2))
             VariabilityMaxAuthorized = np.median(VariabilityMax) + 3 * c*np.median(np.abs(VariabilityMax-np.median(VariabilityMax)))
             isOutlier = np.greater(np.abs(VariabilityMax),VariabilityMaxAuthorized)
-            self.SAMPLES = np.delete(self.SAMPLES,np.where(isOutlier),0)
-            self.SAMPLESDATA = np.delete(self.SAMPLESDATA,np.where(isOutlier),0)
-            newSamplesNb = np.size(self.SAMPLES,axis=0) # Get the number of models remaining
+            SAMPLES = np.delete(SAMPLES,np.where(isOutlier),0)
+            SAMPLESDATA = np.delete(SAMPLESDATA,np.where(isOutlier),0)
+            newSamplesNb = np.size(SAMPLES,axis=0) # Get the number of models remaining
             pass
         if verbose:
             print('{} models remaining after forward modelling!'.format(newSamplesNb))
-        self.nbSamples = newSamplesNb
-        return self.SAMPLESDATA
+        if OtherModels is None:
+            self.nbSamples = newSamplesNb
+            self.SAMPLES = SAMPLES
+            self.SAMPLESDATA = SAMPLESDATA
+        return SAMPLESDATA
     
-    def runRejection(self, Parallelization=[False,None], NoiseModel=None):
+    def runRejection(self, NoiseModel=None, Parallelization=[False,None], verbose:bool=False):
         if NoiseModel is None:
             raise Exception('No noise model provided. Impossible to compute the likelihood')
         if len(NoiseModel) != len(self.DATA['True'][0,:]):
@@ -1018,12 +965,24 @@ class POSTBEL:
         LikelihoodOrder = Likelihood[Order]
         LikelihoodRatio = LikelihoodOrder[1:]/LikelihoodOrder[:-1]
         Accepted = [Order[0]]
-        for i, ratio in enumerate(LikelihoodRatio):
+        LikeLast = LikelihoodOrder[0]
+        nbRejected = 0
+        for i, Like in enumerate(LikelihoodOrder[1:]):
+            ratio = Like/LikeLast
             if ratio > np.random.uniform(0,1):
                 Accepted.append(Order[i+1])
+                LikeLast = Like
+                nbRejected = 0
+            else:
+                nbRejected += 1
+                if nbRejected > 20: # To avoid staying in the same area all the time
+                    Accepted.append(Order[i+1])
+                    LikeLast = Like
+                    nbRejected = 0
         ModelsAccepted = self.SAMPLES[Accepted,:]
         DataAccepted = self.SAMPLESDATA[Accepted,:]
-        print(f'Rejection sampling on POSTBEL executed in {time.time()-timeIn} seconds.')
+        if verbose:
+            print(f'Rejection sampling on POSTBEL executed in {time.time()-timeIn} seconds.')
         return ModelsAccepted, DataAccepted
 
     def ShowPost(self,TrueModel=None):
@@ -1044,7 +1003,7 @@ class POSTBEL:
             pyplot.show(block=False)
         pyplot.show(block=False)
     
-    def ShowPostCorr(self,TrueModel=None, OtherMethod=None, OtherInFront=False, alpha=[1, 1]):
+    def ShowPostCorr(self,TrueModel=None, OtherMethod=None, OtherInFront=False, alpha=[1, 1], OtherModels=None):
         '''SHOWPOSTCORR shows the posterior parameter distributions (correlated).
 
         The optional arguments are:
@@ -1053,14 +1012,19 @@ class POSTBEL:
             - OtherInFront (bool): Show the other in front (True) or at the back (False)
             - alpha (list or int): Transparancy value for the points. Default is 1 for
                                    both BEL1D and OtherMethod. ([BEL1D, OtherMethod])
+            - OtherModels (np.array): an array that replaces the resultst from BEL1D in 
+                                      the graph, for example, a rejection run after BEL1D
         '''
         # Adding the graph with correlations: 
         nbParam = self.SAMPLES.shape[1]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
             TrueModel = None
         if (OtherMethod is not None) and (OtherMethod.shape[1]!=nbParam):
-            print('OtherMethod is not a valid argument!')
+            print('OtherMethod is not a valid argument! Argument ignored . . .')
             OtherMethod = None
+        if (OtherModels is not None) and (OtherModels.shape[1]!=nbParam):
+            print('OtherModels is not a valid argument! Argument ignored . . .')
+            OtherModels = None
         elif not(isinstance(alpha, list)):
             alpha = [alpha, alpha]
         fig = pyplot.figure(figsize=[10,10])# Creates the figure space
@@ -1071,13 +1035,19 @@ class POSTBEL:
                     if i != nbParam-1:
                         axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
                     if OtherInFront:
-                        axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
+                        if OtherModels is not None:
+                            axs[i,j].hist(OtherModels[:,j],color='b',density=True) # Plot the histogram for the given variable
+                        else:
+                            axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
                         if OtherMethod is not None:
                             axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
                     else:
                         if OtherMethod is not None:
                             axs[i,j].hist(OtherMethod[:,j],color='y',density=True)
-                        axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
+                        if OtherModels is not None:
+                            axs[i,j].hist(OtherModels[:,j],color='b',density=True) # Plot the histogram for the given variable
+                        else:
+                            axs[i,j].hist(self.SAMPLES[:,j],color='b',density=True) # Plot the histogram for the given variable
                     if TrueModel is not None:
                         axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
                     if nbParam > 8:
@@ -1091,7 +1061,10 @@ class POSTBEL:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
                         else:
                             axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
-                    axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b',alpha=alpha[0], markeredgecolor='none')
+                    if OtherModels is not None:
+                        axs[i,j].plot(OtherModels[:,j],OtherModels[:,i],'.b',alpha=alpha[0], markeredgecolor='none')
+                    else:
+                        axs[i,j].plot(self.SAMPLES[:,j],self.SAMPLES[:,i],'.b',alpha=alpha[0], markeredgecolor='none')
                     if TrueModel is not None:
                         axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                     if nbParam > 8:
@@ -1133,7 +1106,7 @@ class POSTBEL:
         pyplot.tight_layout()
         pyplot.show(block=False)
     
-    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None], OtherModels=None, OtherData=None):
+    def ShowPostModels(self,TrueModel=None, RMSE:bool=False, Best:int=None, Parallelization=[False,None], NoiseModel=None, OtherModels=None, OtherData=None, OtherRMSE=False):
         '''SHOWPOSTMODELS shows the sampled posterior models.
 
         The optional argument are:
@@ -1146,9 +1119,14 @@ class POSTBEL:
                     o [True, None]: parallel runs without pool provided
                     o [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                     provided
+            - NoiseModel (np.ndarray): an array containing the estimated noise for 
+                                       every datapoints. If provided, we are using
+                                       a wheigted RMSE (chi2) instead of RMSE.
             - OtherModels (np.ndarray): an array containing an other set of models
             - OtherData (np.ndarray): an array containing the simulated data for the
                                       other set of models
+            - OtherRMSE (bool): use the Postbel RMSE (False) or the OtherModels RMSE
+                                (True). Default is False.
         '''
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
@@ -1165,11 +1143,18 @@ class POSTBEL:
             OtherData = None
         if RMSE:
             TrueData = self.DATA['True']
-            if OtherData is not None:
-                RMS = np.sqrt(np.square(np.subtract(TrueData,OtherData)).mean(axis=-1))
-                RMS_scale = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+            if NoiseModel is None:
+                NoiseEstimation = np.ones(TrueData.shape)
             else:
-                RMS = np.sqrt(np.square(np.subtract(TrueData,self.SAMPLESDATA)).mean(axis=-1))
+                NoiseEstimation = NoiseModel
+            if OtherData is not None:
+                RMS = np.sqrt(np.square(np.divide(np.subtract(TrueData,OtherData), NoiseEstimation)).mean(axis=-1))
+                if OtherRMSE:
+                    RMS_scale = RMS
+                else:
+                    RMS_scale = np.sqrt(np.square(np.divide(np.subtract(TrueData,self.SAMPLESDATA), NoiseEstimation)).mean(axis=-1))
+            else:
+                RMS = np.sqrt(np.square(np.divide(np.subtract(TrueData,self.SAMPLESDATA), NoiseEstimation)).mean(axis=-1))
                 RMS_scale = RMS
             quantiles = np.divide([stats.percentileofscore(RMS_scale,a,'strict') for a in RMS],100)
             sortIndex = np.argsort(RMS)
@@ -1196,9 +1181,9 @@ class POSTBEL:
                 for i in range(nbParamUnique):
                     TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
                 
-            maxDepth = np.max(Param[0][:,-1])*1.25
+            maxDepth = np.max(Param[0][:,-1])*1.5
             if RMSE:
-                colormap = matplotlib.cm.get_cmap('jet')
+                colormap = matplotlib.cm.get_cmap('viridis')
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 if nbParamUnique > 1:
                     for j in range(nbParamUnique):
@@ -1220,6 +1205,7 @@ class POSTBEL:
                     axes.set_ylim(bottom=maxDepth,top=0.0)
                     axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
                     axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                    fig.subplots_adjust(left=0.2)
             else:
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 if nbParamUnique > 1:
@@ -1242,6 +1228,7 @@ class POSTBEL:
                     axes.set_ylim(bottom=maxDepth,top=0.0)
                     axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
                     axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                    fig.subplots_adjust(left=0.2)
         if nbParamUnique > 1:
             for ax in axes.flat:
                 ax.label_outer()
@@ -1256,7 +1243,10 @@ class POSTBEL:
             norm = colors.BoundaryNorm(scale,len(color_for_scale))
             data = np.atleast_2d(np.linspace(np.min(RMS_scale),np.max(RMS_scale),nb_inter,endpoint=True))
             ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
-            ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
+            if NoiseModel is None:
+                ax_colorbar.set_xlabel('Root Mean Square Error {}'.format(self.MODPARAM.paramNames["DataUnits"]),fontsize=12)
+            else:
+                ax_colorbar.set_xlabel('Noise Weighted Root Mean Square Error [/]',fontsize=12)
             ax_colorbar.yaxis.set_visible(False)
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
@@ -1315,7 +1305,7 @@ class POSTBEL:
         else:
             PlotData = self.SAMPLESDATA
         if RMSE:
-            colormap = matplotlib.cm.get_cmap('jet')
+            colormap = matplotlib.cm.get_cmap('viridis')
             for j in sortIndex:
                 ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(PlotData[j,:len(self.MODPARAM.forwardFun["Axis"])]),color=colormap(quantiles[j]))
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
@@ -1451,13 +1441,14 @@ def SaveSamples(CurrentPostbel:POSTBEL, Data=False, Filename='Models_Sampled'):
 
 # Iterative prior resampling:
 from typing import Callable
-def defaultMixing(iter) -> float:
-    return 0.5
+def defaultMixing(iter:int) -> float:
+    return 1
     
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
-    nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
-    saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False,
-    verbose:bool=False):
+        nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
+        saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, 
+        Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False, TrueModel=None,
+        verbose:bool=False):
     '''IPR (Iterative prior resampling) is a function that will compute the posterior 
     with iterative prior resampling for a given model defined via a MODELSET class object.
 
@@ -1592,19 +1583,22 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         ax = pyplot.gca()
         ax.set_ylabel('Cumulative CPU time [sec]')
         ax.set_xlabel('Iteration nb.')
-        if verbose:
-            print('Computation done in {} seconds!'.format(statsReturn[-1].timing))
         nbParam = len(Prebel.MODPARAM.prior)
         for j in range(nbParam):
-            pyplot.figure()
-            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j] for i in range(len(statsReturn))],'b-')
-            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j]+statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
-            pyplot.plot(range(len(statsReturn)),[statsReturn[i].means[j]-statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
-            ax = pyplot.gca()
+            fig = pyplot.figure()
+            ax = fig.add_subplot()
+            ax.plot(range(len(statsReturn)),[statsReturn[i].means[j] for i in range(len(statsReturn))],'b-')
+            ax.plot(range(len(statsReturn)),[statsReturn[i].means[j]+statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
+            ax.plot(range(len(statsReturn)),[statsReturn[i].means[j]-statsReturn[i].stds[j] for i in range(len(statsReturn))],'b--')
+            if TrueModel is not None:
+                ax.plot([0, len(statsReturn)-1],[TrueModel[j], TrueModel[j]],'r')
+            ax.set_xlim(0, len(statsReturn)-1)
             ax.set_title(r'${}$'.format(Prebel.MODPARAM.paramNames["NamesFU"][j]))
             ax.set_ylabel('Posterior distribution')
             ax.set_xlabel('Iteration nb.')
         pyplot.show(block=False)
+    if verbose and stats:
+        print('Computation done in {} seconds!'.format(statsReturn[-1].timing))
 
     if not(statsNotReturn):
         return Prebel, Postbel, PrebelInit, statsReturn

@@ -76,11 +76,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         nLayer = 3
         Frequency = np.logspace(0.1,1.5,50)
         Periods = np.divide(1,Frequency)
-        #model = model.append(rho)
+        # model = model.append(rho)
         # Forward modelling using surf96:
         DatasetClean = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
         ErrorModelSynth = [0.075, 20]
         NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*DatasetClean*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+        RMSE_Noise = np.sqrt(np.square(NoiseEstimate).mean(axis=-1))
+        print('The RMSE for the clean dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
         # np.savetxt('MASW_BenchmarkDataset.txt', DatasetClean)
         # np.savetxt('MASW_BenchamrkNoise.txt', NoiseEstimate)
         # np.save('NoiseEstimateTest.npy',NoiseEstimate)
@@ -117,7 +119,14 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+        paramNames = {"NamesFU":NamesFullUnits, 
+                      "NamesSU":NamesShortUnits, 
+                      "NamesS":NamesShort,
+                      "NamesGlobal":NFull,
+                      "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],
+                      "DataUnits":"[km/s]",
+                      "DataName":"Phase\\ velocity\\ [km/s]",
+                      "DataAxis":"Periods\\ [s]"}
         def funcSurf96(model):
             import numpy as np
             from pysurf96 import surf96
@@ -126,9 +135,17 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             nLayer = 3
             Frequency = np.logspace(0.1,1.5,50)
             Periods = np.divide(1,Frequency)
-            return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+            return surf96(thickness=np.append(model[0:nLayer-1], [0]),
+                          vp=Vp,
+                          vs=model[nLayer-1:2*nLayer-1],
+                          rho=rho,
+                          periods=Periods,
+                          wave="rayleigh",
+                          mode=1,
+                          velocity="phase",
+                          flat_earth=True)
 
-        forwardFun = funcSurf96 #lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forwardFun = funcSurf96
         forward = {"Fun":forwardFun,"Axis":Periods}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         # Initialize the model parameters for BEL1D
@@ -139,9 +156,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         def MixingFunc(iter:int) -> float:
             return 1# Always keeping the same proportion of models as the initial prior
         if stats:
-            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=Graphs, verbose=True)
+            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
+                                                           nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,
+                                                           Graphs=Graphs, TrueModel=TrueModel, verbose=True)
         else:
-            Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs)
+            Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
+                                                    nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs, TrueModel=TrueModel)
         if Graphs:
 
             # Show final results analysis:
@@ -158,7 +178,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset,'k')
-                PostbelInit.ShowPostModels(TrueModel=TrueModel, RMSE=True)
+                PostbelInit.ShowPostModels(TrueModel=TrueModel, RMSE=True) #, NoiseModel=NoiseEstimate)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.150, top=0.0)
+                CurrentGraph.suptitle("BEL1D",fontsize=16)
             if True: # Comparison iterations?
                 # Graphs for the iterations:
                 Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
@@ -170,7 +195,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset,'k')
                 Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
-                Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)#,Parallelization=[True, pool])
+                Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)#,Parallelization=[True, pool])
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.150, top=0.0)
+                CurrentGraph.suptitle("BEL1D + IPR",fontsize=16)
                 # Graph for the CCA space parameters loads
                 _, ax = pyplot.subplots()
                 B = PrebelInit.CCA.y_loadings_
@@ -204,11 +234,18 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
                 # Compare the results to McMC results:
                 McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
-                # We consider a burn-in period of 50%:
-                DREAM=McMC[int(len(McMC)/2):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
+                # We consider a burn-in period of 75%:
+                DREAM=McMC[int(len(McMC)*3/4):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
                 # DREAM = np.unique(DREAM,axis=0)
                 print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM: {}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
                 Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True, alpha=[0.02, 0.06]) # They are 3 times more models for BEL1D than DREAM
+                DREAM_Data = Postbel.DataPost(Parallelization=ppComp, OtherModels=DREAM)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=DREAM, OtherData=DREAM_Data, OtherRMSE=True)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                CurrentGraph.suptitle("DREAM",fontsize=16)
             
             if False: # Comparison MCMC/rejection?
                 ### For reproductibility - Random seed fixed
@@ -230,7 +267,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                         MCMC_Data.append(np.squeeze(MCMC_Init_Data[i,j,:]))
                 MCMC_Init = np.asarray(MCMC)
                 MCMC_Init_Data = np.asarray(MCMC_Data)
-                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Init)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=MCMC_Init, OtherData=MCMC_Init_Data) #, NoiseModel=NoiseEstimate)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                CurrentGraph.suptitle("BEL1D + IPR + Rejection",fontsize=16)
+                
                 ## Exectuing MCMC on the posterior:
                 print('Executing MCMC on POSTBEL . . .')
                 MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=20, NoiseModel=NoiseEstimate)# 10 independant chains of 10000 models
@@ -243,12 +286,21 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                         MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
                 MCMC_Final = np.asarray(MCMC)
                 MCMC_Final_Data = np.asarray(MCMC_Data)
-                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=MCMC_Final)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=MCMC_Final, OtherData=MCMC_Final_Data) #, NoiseModel=NoiseEstimate)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                CurrentGraph.suptitle("BEL1D + IPR + McMC",fontsize=16)
                 
                 print('Executing rejection on the BEL1D models . . .')
                 ModelsRejection, DataRejection = Postbel.runRejection(Parallelization=ppComp,NoiseModel=NoiseEstimate)
-                # Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=ModelsRejection)
-                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=ModelsRejection, OtherData=DataRejection)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=ModelsRejection, OtherData=DataRejection) #, NoiseModel=NoiseEstimate)
+                CurrentGraph = pyplot.gcf()
+                CurrentAxes = CurrentGraph.get_axes()[0]
+                CurrentAxes.set_xlim(left=0,right=1)
+                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                CurrentGraph.suptitle("BEL1D + IPR + Rejection",fontsize=16)
 
                 # Adding the graph with correlations: 
                 nbParam = Postbel.SAMPLES.shape[1]
@@ -325,7 +377,9 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
                 patch4 = mpatches.Patch(facecolor='peru', edgecolor='#000000')
                 patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
-                fig.legend(handles=[patch0, patch5, patch1, patch2, patch3, patch4],labels=["Benchmark", "Prior", "BEL1D + IPR", "MCMc", "BEL1D + IPR + MCMc", "BEL1D + IPR + Rejection"], loc="upper center", ncol=6)
+                fig.legend(handles=[patch0, patch5, patch1, patch2, patch3, patch4],
+                           labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + McMC", "BEL1D + IPR + Rejection"], 
+                           loc="upper center", ncol=6)
                 for ax in axs.flat:
                     ax.label_outer()
                 pyplot.tight_layout(rect=(0,0,1,0.975))
@@ -347,7 +401,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 from random import seed
                 seed(0)
             ### End random seed fixed
-            Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True)
+            Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)
             CurrentGraph = pyplot.gcf()
             CurrentAxes = CurrentGraph.get_axes()[0]
             nbLayer = 3
@@ -445,16 +499,24 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                             ident += 1
                 method = "DC"
                 Periods = np.divide(1,Frequency)
-                paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+                paramNames = {"NamesFU":NamesFullUnits,
+                              "NamesSU":NamesShortUnits, 
+                              "NamesS":NamesShort, 
+                              "NamesGlobal":NFull, 
+                              "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],
+                              "DataUnits":"[km/s]",
+                              "DataName":"Phase\\ velocity\\ [km/s]",
+                              "DataAxis":"Periods\\ [s]"}
                 forward = {"Fun":forwardFun,"Axis":Periods}
                 cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
                 # Initialize the model parameters for BEL1D
                 ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
                 timeIn = time.time()
-                Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=True)
+                Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
+                                                        nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=True)
                 timeOut = time.time()
                 print(f'Run for {nLayer} layers done in {timeOut-timeIn} seconds')
-                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True)
+                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True) #, NoiseModel=NoiseEstimate)
                 CurrentGraph = pyplot.gcf()
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 nbLayer = 3
@@ -484,11 +546,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         meansUniform = lambda a,b: (b-a)/2
         ident = 0
         for j in range(nParam):
-                    for i in range(nLayer):
-                        if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
-                            stdPrior[ident] = stdUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
-                            meansPrior[ident] = meansUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
-                            ident += 1
+            for i in range(nLayer):
+                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                    stdPrior[ident] = stdUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+                    meansPrior[ident] = meansUniform(priorMIR[i,j*2],priorMIR[i,j*2+1])
+                    ident += 1
         Dataset = np.loadtxt("Data/DC/Mirandola_InterPACIFIC/Average/Average_interp60_cuttoff.txt")
         FreqMIR = Dataset[:,0]
         DatasetMIR = np.divide(Dataset[:,1],1000)# Phase velocity in km/s for the forward model
@@ -496,10 +558,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ModelSetMIR = BEL1D.MODELSET.DC(prior=priorMIR, Frequency=FreqMIR)
         MixingFunc = lambda iter: 1 #Return 1 whatever the iteration
         NoiseEstimate = np.asarray(np.divide(ErrorModel[0]*DatasetMIR*1000 + np.divide(ErrorModel[1],FreqMIR),1000)) # Standard deviation for all measurements in km/s
+        RMSE_Noise = np.sqrt(np.square(NoiseEstimate).mean(axis=-1))
+        print('The RMSE for the clean dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
         nbModelsBase = 10000
         Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=True)
-        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS)
-        Postbel.ShowPostModels(RMSE=True)
+        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
+        Postbel.ShowPostModels(RMSE=True) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True)
         fig = pyplot.gcf()
         ax = fig.axes[0]
@@ -509,18 +573,17 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             DatasetOther = np.loadtxt(DataPath+currFile)
             DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
             DatasetOther[DatasetOther==0] = np.nan
-            ax.plot(np.divide(1,FreqMIR), DatasetOther,':k')
-        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on to of the graph
-        fig, ax = pyplot.subplots()
-        ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior')
-        ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior')
-        ylim = ax.get_ylim()
-        dBedrock = 118
-        ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
-        ax.set_xlabel('Depth to bedrock [m]')
-        ax.set_ylabel('Probability estimation [/]')
-        ax.legend()
-        RejectionModels, RejectionData = Postbel.runRejection(NoiseModel=NoiseEstimate)
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
+        
+
+        ## Running the rejection sampling:
+        Rejection, RejectionData = Postbel.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
+        Postbel.ShowPostModels(RMSE=True, OtherModels=Rejection, OtherData=RejectionData) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionData)
         fig = pyplot.gcf()
         ax = fig.axes[0]
@@ -530,30 +593,25 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             DatasetOther = np.loadtxt(DataPath+currFile)
             DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
             DatasetOther[DatasetOther==0] = np.nan
-            ax.plot(np.divide(1,FreqMIR), DatasetOther,':w')
-        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'w',linewidth=2) # Adding the field dataset on to of the graph
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
 
-        MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=10, NoiseModel=NoiseEstimate)
-        ## Extracting the after burn-in models (last 50%)
-        MCMC = []
-        MCMC_Data = []
-        for i in range(MCMC_Final.shape[0]):
-            for j in np.arange(int(MCMC_Final.shape[1]/2),MCMC_Final.shape[1]):
-                MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
-                MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
-        MCMC_Final = np.asarray(MCMC)
-        MCMC_Final_Data = np.asarray(MCMC_Data)
-        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=MCMC_Final_Data)
-        fig = pyplot.gcf()
-        ax = fig.axes[0]
-        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
-        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
-        for currFile in files:
-            DatasetOther = np.loadtxt(DataPath+currFile)
-            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
-            DatasetOther[DatasetOther==0] = np.nan
-            ax.plot(np.divide(1,FreqMIR), DatasetOther,':k')
-        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on to of the graph
+        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1], OtherModels=Rejection)
+
+        fig, ax = pyplot.subplots()
+        ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior', alpha=0.5)
+        ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR)', alpha=0.5)
+        ax.hist(np.sum(Rejection[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR+Rejection)', alpha=0.5)
+        ylim = ax.get_ylim()
+        dBedrock = 118
+        ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
+        ax.set_xlabel('Depth to bedrock [m]')
+        ax.set_ylabel('Probability estimation [/]')
+        ax.legend()
 
         pyplot.show(block=False)
         # multipage('Mirandola.pdf',dpi=300)
