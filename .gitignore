@@ -1,24 +1,35 @@
 # Those files are untracted
+# Local caches for the runs
 pyBEL1D/utilities/__pycache__/
 pyBEL1D/__pycache__/
+__pycache__/
+# Research folders
 Arsalan/
 testingRejection/
 testingNbModels/
+testingInitModelsNoNoiseAdded/
+testingInitModels/
+research/
+BenchmarkFigs/
+IPR_Results_MRS2021/
+MirandolaFigs/
+Analysis.py
+TestFlo.py
+DatasetTest.txt
+Testings.py
+# Files extensions not needed
 *.ipynb
 *.perf
 *.npz
 *.pdf
 *.vscode
-__pycache__/
 *.datas
 *.models
 *.postbel
 *.prebel
 *.npy
-!SEG2020_Bench.npy
+*.pyc
 *.png
-Testings*
-!.research/*
-./testing*
-Analysis.py
-TestFlo.py
+# Files to keep anyway:
+!SEG2020_Bench.npy
+!DREAM_MASW.npy
