@@ -15,10 +15,10 @@
 #   - (Done) Check KDE behaviour whit outliers (too long computations and useless?)
 
 # Importing custom libraries
-from copy import deepcopy
 from .utilities import Tools
 from .utilities.KernelDensity import KDE
 #Importing common libraries
+from copy import deepcopy
 import numpy as np 
 import math as mt 
 import matplotlib
