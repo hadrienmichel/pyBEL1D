@@ -726,7 +726,35 @@ class POSTBEL:
                                         PREBEL class
 
     The class object has multiple attributes. Some of those are 
-    
+        - nbModels (int): Number of models in the prior (from the 
+                          PREBEL object)
+        - nbSamples (int): Number of models in the posterior (setup
+                           in the *run* method). Default value of 
+                           1000.
+        - FORWARD (np.ndarray): Forward model for the prior models.
+                                Originating from the PREBEL object.
+        - KDE (object): Kernel Density Estimation descriptor.
+                            Originating from the PREBEL object.
+        - PCA (dict): a dictionnary containing the PCA reduction with 
+                      their mathematical descriptions:
+            o 'Data': a sklearn.decompostion.PCA object with the PCA
+                      decomposition for the data dimensions.
+            o 'Models': a sklearn.decompostion.PCA object with the PCA
+                        decomposition for the models dimensions. If no
+                        PCA reduction is applied to the model space, 
+                        the value is *None*
+        - CCA (object): a sklearn.cross_decomposition.CCA object 
+                        containing the CCA decomposition.
+        - MODPARAM (MODELSET): the full MODELSET object (see class 
+                               description).
+        - DATA (dict): dictionary containing the field dataset.
+            o 'True': The dataset in the original dimension.
+            o 'PCA': The dataset in the PCA-reduced space.
+            o 'CCA': The dataset in the CCA-projected space.
+        - SAMPLES (np.ndarray): The models sampled from the posterior
+                                model space.
+        - SAMPLESDATA (np.ndarray): The datasets corresponding to the 
+                                    sampled models.
     """
     def __init__(self,PREBEL:PREBEL):
         self.nbModels = PREBEL.nbModels
