@@ -16,37 +16,36 @@
 
 # Importing custom libraries
 from .utilities import Tools
+from .utilities.Tools import round_to_n
 from .utilities.KernelDensity import KDE
 #Importing common libraries
-from copy import deepcopy
-import numpy as np 
-import math as mt 
-import matplotlib
-from matplotlib import pyplot
-import sklearn
-from sklearn import decomposition, cross_decomposition
-from scipy import stats
-from pathos import multiprocessing as mp # No issues with pickeling with this
-from pathos import pools as pp
-from functools import partial
-import time
-from numpy import random
+import numpy as np                          # For common matrix operations
+import math as mt                           # Common mathematical functions
+import matplotlib                           # For graphical outputs
+from matplotlib import pyplot               # For matlab-like graphs
+import sklearn                              # For PCA and CCA decompositions
+from scipy import stats                     # For the statistical distributions
+from pathos import multiprocessing as mp    # For parallelization (No issues with pickeling)
+from pathos import pools as pp              # For parallelization
+from functools import partial               # For building parallelizable functions
+import time                                 # For CPU time measurements
+from numpy import random                    # For random sampling
 
 # Forward models:
-from pygimli.physics.sNMR import MRS, MRS1dBlockQTModelling # SNMR
-from pysurf96 import surf96                                 # Dispersion Curves
+from pygimli.physics.sNMR import MRS, MRS1dBlockQTModelling # sNMR (from pyGIMLI: https://www.pygimli.org/)
+from pysurf96 import surf96                                 # Dispersion Curves (from Github: https://github.com/hadrienmichel/pysurf96)
 
-def round_to_n(x,n=1): 
-    '''Function that rounds the inputs float to n significant numbers.
+'''
+In order for parallelization to work efficiently for different type of forward models,
+some functions are requiered:
 
-    Inputs: - x (float): the input float to be rounded
-            - n (int): the number of significant numbers
-    Returns the rounded float.
-    '''
-    # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
-    tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
-    return tmp
+    - ForwardParallelFun: Enables an output to the function even if the function fails
+    - ForwardSNMR: Function that defines the forward model directly instead of directly
+                   calling a class method (not pickable).
 
+In order for other forward model to run properly, please, use a similar method! The 
+forward model MUST be a callable function DIRECTLY, not a class method.
+'''
 # Parralelization functions:
 def ForwardParallelFun(Model, function, nbVal):
     '''This function enables the use of any function to be parralelized.
@@ -281,61 +280,82 @@ class PREBEL:
                                             MODLESET class object
         - nbModels (int): the number of models to sample from the
                           prior (dafault = 1000)
+
+    The class object has different attributes:
+        - PRIOR (list): a list containing the different distributions
+                        for the prior. The statistical distributions 
+                        must be scipy.stats objects in order to be
+                        sampled.
+        - CONDITIONS (callable): a lambda functions that will return
+                                 either *True* if the selected model 
+                                 is within the prior conditions of 
+                                 *False* otherwise.
+        - nbModels (int): the number of models to sample from the
+                          prior.
+        - MODPARAM (MODELSET): the full MODELSET object (see class 
+                               description).
+        - MODELS (np.ndarray): the sampled models with dimensions
+                               (nbModels * nbParam)
+        - FORWARD (np.ndarray): the corresponding datasets with 
+                                dimensions (nbModels * len(data))
+        - PCA (dict): a dictionnary containing the PCA reduction with 
+                      their mathematical descriptions:
+            o 'Data': a sklearn.decompostion.PCA object with the PCA
+                      decomposition for the data dimensions.
+            o 'Models': a sklearn.decompostion.PCA object with the PCA
+                        decomposition for the models dimensions. If no
+                        PCA reduction is applied to the model space, 
+                        the value is *None*
+        - CCA (object): a sklearn.cross_decomposition.CCA object 
+                        containing the CCA decomposition.
+        - KDE (object): a KDE object containing the Kernel Density 
+                        Estimation for the CCA space (see 
+                        utilities.KernelDensity for more details).
+
     """
     def __init__(self,MODPARAM:MODELSET,nbModels:int=1000):
-        # PRIOR: a list of scipy.stats distributions describing 
-        # the prior model space for all the parameters
         self.PRIOR = MODPARAM.prior
-        # CONDITIONS: a list of lambda functions that are imbeded in a cond class (custom)
-        # The compute method of the class must return a list of boolean values
         self.CONDITIONS = MODPARAM.cond
-        # nbModels: the number of sampled models
         self.nbModels = nbModels
-        # MODPARAM: a dictionnary with
-        #   - 'method': the name of the geophysical method ('sNMR' or 'DC')
-        #   - 'forward': a lambda function taking as argument model, a vector with the model's
-        #                parameters
-        #   - 'parmNames': a dictionnary with the instances of names for the parameters 
-        #                  (full = full name with untis, units = reduced name with units 
-        #                  and nounits = reduced name) contained in Lists
         self.MODPARAM = MODPARAM
-        # MODELS: a numpy array containing the models parameters values.
-        #           - the number of columns (second dimension) is the number of parameters
-        #           - the number of lines (first dimension) is the number of models
         self.MODELS = []
-        # FORWARD: a numpy array containing the forward response of each model
-        #           - the number of column (second dimension) is the number of simulated points
-        #           - the number of lines (first dimension) is the number of models
         self.FORWARD = []
-        # PCA: a dictionnary containing the PCA reduction and their mathematical definitions
         self.PCA = dict()
-        # CCA: a class object containing the CCA reduction and their mathematical definitions
         self.CCA = []
-        # KDE: a class pobject KDE (custom)
         self.KDE = []
 
-    def run(self, RemoveOutlier:bool=False, Parallelization=[False, None],verbose:bool=False):
+    def run(self, Parallelization:list=[False, None], RemoveOutlier:bool=False, reduceModels:bool=False, verbose:bool=False):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
-        The optional argument RemoveOutlier (bool) is given to simplifie the KDE
-        computation (default=False)
-        If the argument Parallelization (list) is given it can either be:
-            - [False, ?]: no parallel runs
-            - [True, None]: parallel runs without pool provided
-            - [True, pool]: parallel runs with pool (defined bypathos.pools) 
-                            provided
-        The default is no parallel runs.
+        Howerev, optional arguments are:
+            - Parallelization (list): instructions for parallelization
+                o [False, ?]: no parallel runs
+                o [True, None]: parallel runs without pool provided
+                o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                                provided
+                The default is no parallel runs.
+            - RemoveOutlier (bool): simplifie the KDE computation by removing models
+                                    that are way outside the space (default=False).
+            - reduceModels (bool): apply PCA reduction to the models (True) or not (False).
+                                   Default value is *False*
+            - verbose (bool): receive feedback from the code while it is running (True)
+                              or not (False). The default is *False*.
         """
-
         # 1) Sampling (if not done already):
-        if self.nbModels is None:
+        if verbose:
+            print('Sampling the prior . . .')
+        if self.nbModels is None: # Normally, we should never enter this
             self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS)
             self.nbModels = 1000
         else:
             self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS,self.nbModels)
+        
         # 2) Running the forward model
+        if verbose:
+            print('Running the forward modelling . . .')
         # For DC, sometimes, the code will return an error --> need to remove the model from the prior
+        # Initialization of the FORWARD attribute. Need to compute 
         indexCurr = 0
         while True:
             try:
@@ -361,8 +381,6 @@ class PREBEL:
                 Parallelization[1] = pool
                 terminatePool = True
             outputs = pool.map(functionParallel,inputs)
-            # pool.close()
-            # pool.join()
             self.FORWARD = np.vstack(outputs) #ForwardParallel
             notComputed = [i for i in range(self.nbModels) if self.FORWARD[i,0] is None]
             self.MODELS = np.array(np.delete(self.MODELS,notComputed,0),dtype=np.float64)
@@ -404,7 +422,8 @@ class PREBEL:
             print('{} models remaining after forward modelling!'.format(newModelsNb))
         self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
-        reduceModels = False
+        if verbose:
+            print('Reducing the dimensionality . . .')
         varRepresented = 0.90
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
@@ -416,7 +435,7 @@ class PREBEL:
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
-                    print('The data space can be represented with fewer dimensions than the models!')
+                    print('The data space can be represented with fewer dimensions ({}) than the models ({})!'.format(n_CompPCA_Data, n_CompPCA_Mod))
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
@@ -430,23 +449,27 @@ class PREBEL:
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
-                    print('The data space can be represented with fewer dimensions than the models!')
+                    print('The data space can be represented with fewer dimensions ({}) than the models ({})!'.format(n_CompPCA_Data, n_CompPCA_Mod))
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
                 d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
             self.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
+        if verbose:
+            print('Building the CCA space . . .')
         cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
         d_c,m_c = cca_transform.fit_transform(d_h,m_h)
         self.CCA = cca_transform
         # 5) KDE:
+        if verbose:
+            print('Running Kernel Density Estimation . . .')
         self.KDE = KDE(d_c,m_c)
-        self.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization)
+        self.KDE.KernelDensity(RemoveOutlier=RemoveOutlier,Parallelization=Parallelization, verbose=verbose)
         if Parallelization[0] and terminatePool:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls,PREBEL,POSTBEL,Dataset=None,NoiseModel=None,Parallelization:list=[False,None],verbose:bool=False):
+    def POSTBEL2PREBEL(cls, PREBEL, POSTBEL, Dataset=None, NoiseModel=None, Parallelization:list=[False,None], reduceModels:bool=False, verbose:bool=False):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -460,24 +483,31 @@ class PREBEL:
                     o [True, None]: parallel runs without pool provided
                     o [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided 
+            - reduceModels (bool): apply PCA reduction to the models (True) or not (False).
+                                   Default value is *False*
             - verbose (bool): output progresses messages (True) or not (False - default)
 
         '''
-        # if (Dataset is None) and (NoiseModel is not None):
-        #     NoiseModel = None 
         # 1) Initialize the Prebel class object
+        if verbose:
+            print('Initializing the PREBEL object . . .')
         Modelset = POSTBEL.MODPARAM # A MODELSET class object
         PrebelNew = cls(Modelset)
         # 2) Running the forward model
         if not(len(POSTBEL.SAMPLESDATA) != 0):
-            # For DC, sometimes, the code will return an error --> need to remove the model from the prior
+            if verbose: 
+                print('Running the forward modelling . . .')
+            # We are using the built-in method of POSTBEL to run the forward model
             POSTBEL.DataPost(Parallelization=Parallelization)
+        if verbose:
+            print('Building the informed prior . . .')
         PrebelNew.MODELS = np.append(PREBEL.MODELS,POSTBEL.SAMPLES,axis=0)
         PrebelNew.FORWARD = np.append(PREBEL.FORWARD,POSTBEL.SAMPLESDATA,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
         # 3) PCA on data (and optionally model):
-        reduceModels = False
         varRepresented = 0.90
+        if verbose:
+            print('Reducing the dimensionality . . .')
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
             m_h = pca_model.fit_transform(PrebelNew.MODELS)
@@ -508,6 +538,8 @@ class PREBEL:
                 n_CompPCA_Data = d_h.shape[1]
             PrebelNew.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
+        if verbose:
+            print('Building the CCA space . . .')
         cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
         d_c,m_c = cca_transform.fit_transform(d_h,m_h)
         PrebelNew.CCA = cca_transform
@@ -517,17 +549,19 @@ class PREBEL:
             d_obs_h = PrebelNew.PCA['Data'].transform(Dataset)
             d_obs_c = PrebelNew.CCA.transform(d_obs_h)
             if NoiseModel is not None:
-                Noise = np.sqrt(Tools.PropagateNoise(PrebelNew,NoiseModel,DatasetIn=Dataset))
+                Noise = np.sqrt(Tools.PropagateNoise(PrebelNew, NoiseModel, DatasetIn=Dataset))
             else:
                 Noise = None
         # 5) KDE:
+        if verbose:
+            print('Running Kernel Density Estimation . . .')
         PrebelNew.KDE = KDE(d_c,m_c)
         if Dataset is None:
-            PrebelNew.KDE.KernelDensity(Parallelization=Parallelization)
+            PrebelNew.KDE.KernelDensity(Parallelization=Parallelization, verbose=verbose)
         else:
-            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise,Parallelization=Parallelization)
-        # if Parallelization[0] and terminatePool:
-        #     pool.terminate()
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c), NoiseError=Noise, Parallelization=Parallelization, verbose=verbose)
+        if verbose:
+            print('PREBEL object build!')
         return PrebelNew
     
     def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=50000, nbChains:int=10, verbose:bool=False):
@@ -558,6 +592,8 @@ class PREBEL:
         accepted = np.zeros((nbChains, nbSamples, nbParam))
         acceptedData = np.zeros((nbChains, nbSamples, len(Dataset)))
         for j in range(nbChains):
+            if verbose:
+                print('Running chain {} out of {}. . .'.format(j, nbChains))
             rejectedNb = 0
             i = 0
             LikelihoodLast = 1e-50 # First sample most likely accepted
@@ -568,8 +604,8 @@ class PREBEL:
                     ## Sampling a random model from the prior distribution
                     sampleCurr = Tools.Sampling(self.PRIOR,self.CONDITIONS,nbModels=1)
                 else:
-                    ## Random change to the sampled model:
-                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((nbParam,)),Covariance)# np.random.uniform(0,0.01)*np.random.randn()*sampleAdd
+                    ## Random change to the sampled model (according to the covariance):
+                    sampleCurr = sampleLast + np.random.multivariate_normal(np.zeros((nbParam,)),Covariance)
                 ## Computing the likelihood from a data misfit:
                 if self.MODPARAM.cond(sampleCurr):
                     try:
@@ -596,11 +632,17 @@ class PREBEL:
                 else:
                     rejectedNb += 1
                 if np.mod(i,50) == 0 and not(passed):
+                    if verbose:
+                        print('{} models sampled (out of {}) in chain {}.'.format(i, nbSamples, j))
                     # LikelihoodLast = 1e-50
                     AcceptanceRatio = i/(rejectedNb+i)
                     if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                        if verbose:
+                            print('Acceptance ratio too low, reducing covariance.')
                         Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
                     elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                        if verbose:
+                            print('Acceptance ratio too high, increasing covariance.')
                         Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
                     # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
                     passed = True
@@ -614,7 +656,6 @@ class PREBEL:
 
         The optional argument TrueModel (np.array) is an array containing the benchmark model.
         '''
-        from matplotlib import colors
         nbParam = self.MODELS.shape[1]
         nbLayer = self.MODPARAM.nbLayer
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):

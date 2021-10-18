@@ -6,7 +6,25 @@ from pathos import multiprocessing as mp
 from pathos import pools as pp
 from os import listdir
 
+'''
+MRS2021 is a script that runs all the computations for the different results 
+presented at the MRS2021 conference (Strasbourg, France).
 
+***Application of BEL1D for sNMR data interpretation***
+
+It runs at first the numerical benchmark for a dataset that is created directly.
+    - Creating the dataset 
+    - Running BEL1D (initialization + first iteration)
+    - Presenting graphs of the results
+    - Applying IPR
+    - Presenting graphs of the improved result
+
+Author: 
+Hadrien MICHEL
+ULiège, UGent, F.R.S.-FNRS
+hadrien[dot]michel[at]uliege[dot]be
+(c) October 2021
+'''
 
 ### For reproductibility - Random seed fixed
 RandomSeed = False # If True, use true random seed, else (False), fixed for reproductibility

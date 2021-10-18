@@ -1,10 +1,20 @@
-# class cond:
-#     def __init__(self):
-#         self.function = None
+import math as mt
+
 
 def isalambda(v):# From: https://stackoverflow.com/questions/3655842/how-can-i-test-whether-a-variable-holds-a-lambda
   LAMBDA = lambda:0
   return isinstance(v, type(LAMBDA)) and v.__name__ == LAMBDA.__name__
+
+def round_to_n(x,n=1): 
+    '''Function that rounds the inputs float to n significant numbers.
+
+    Inputs: - x (float): the input float to be rounded
+            - n (int): the number of significant numbers
+    Returns the rounded float.
+    '''
+    # Modified from: https://stackoverflow.com/questions/3410976/how-to-round-a-number-to-significant-figures-in-python
+    tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
+    return tmp
 
 def Sampling(prior:list,conditions=None,nbModels:int=1000):
     '''SAMPLING is a function that samples models from a gievn prior model space.
@@ -145,7 +155,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         #     d_obs_h = POSTBEL.PCA['Data'].transform(Dataset_Noisy)
         #     CCA_Data = POSTBEL.CCA.transform(d_obs_h)
         #     NoiseLevel = np.var(CCA_Data,axis=0)
-    elif TypeMod == "General":
+    else: # TypeMod == "General":
         if not(isinstance(NoiseLevel,list)) and not(isinstance(NoiseLevel,np.ndarray)):
             raise Exception('NoiseLevel is not a list!')
         if len(NoiseLevel)!=POSTBEL.FORWARD.shape[1]:
@@ -165,8 +175,8 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
         # Cf = np.squeeze(np.mean(COV_diff,axis=0))
         Cc = np.dot(POSTBEL.CCA.x_loadings_.T,np.dot(Cf,POSTBEL.CCA.x_loadings_))#POSTBEL.CCA.x_loadings_.T*Cf*POSTBEL.CCA.x_loadings_
         NoiseLevel = np.diag(Cc)
-    else:
-        raise RuntimeWarning('No noise propagation defined for the given method!')
+    # else:
+    #     raise RuntimeWarning('No noise propagation defined for the given method!')
     return NoiseLevel
 
 nSamplesConverge = 1000
