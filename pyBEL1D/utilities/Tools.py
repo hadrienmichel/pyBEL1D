@@ -1,6 +1,5 @@
 import math as mt
 
-
 def isalambda(v):# From: https://stackoverflow.com/questions/3655842/how-can-i-test-whether-a-variable-holds-a-lambda
   LAMBDA = lambda:0
   return isinstance(v, type(LAMBDA)) and v.__name__ == LAMBDA.__name__

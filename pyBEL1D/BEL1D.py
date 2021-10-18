@@ -587,7 +587,7 @@ class PREBEL:
             raise Exception('No noise model provided. Impossible to compute the likelihood')
         if len(NoiseModel) != len(Dataset):
             raise Exception('NoiseModel should have the same size as the dataset')
-        timeIn = time.time()
+        timeIn = time.time() # For the timer
         nbParam = len(self.MODPARAM.prior)
         accepted = np.zeros((nbChains, nbSamples, nbParam))
         acceptedData = np.zeros((nbChains, nbSamples, len(Dataset)))
@@ -644,7 +644,6 @@ class PREBEL:
                         if verbose:
                             print('Acceptance ratio too high, increasing covariance.')
                         Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
-                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
                     passed = True
                 LikelihoodLast = Likelihood
         if verbose:
@@ -758,7 +757,7 @@ class POSTBEL:
     """
     def __init__(self,PREBEL:PREBEL):
         self.nbModels = PREBEL.nbModels
-        self.nbSamples = 1000 # Default number of sampled models
+        self.nbSamples = 1000 # Default value for the parameter
         self.FORWARD = PREBEL.FORWARD # Forward from the prior
         self.KDE = PREBEL.KDE
         self.PCA = PREBEL.PCA
@@ -768,7 +767,7 @@ class POSTBEL:
         self.SAMPLES = []
         self.SAMPLESDATA = []
 
-    def run(self,Dataset,nbSamples:int=1000,Graphs:bool=False,NoiseModel:list=None):
+    def run(self, Dataset, nbSamples:int=1000, Graphs:bool=False, NoiseModel:list=None, verbose:bool=False):
         '''RUN is a method that runs POSTBEL operations for a given dataset.
 
         It takes as argument:
@@ -782,26 +781,34 @@ class POSTBEL:
             - NoiseModel (list): the list defining the noise model 
                                  (see dedicated functions)
                                  (default=None)
-
-
+            - verbose (bool): output progresses messages (True) or
+                              not (False - default)
         '''
         self.nbSamples = nbSamples
         # Transform dataset to CCA space:
+        if verbose:
+            print('Projecting the dataset into the CCA space . . .')
         Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
         d_obs_h = self.PCA['Data'].transform(Dataset)
         d_obs_c = self.CCA.transform(d_obs_h)
         self.DATA = {'True':Dataset,'PCA':d_obs_h,'CCA':d_obs_c}
         # Propagate Noise:
         if NoiseModel is not None:
+            if verbose:
+                print("Propagating the noise model . . .")
             Noise = np.sqrt(Tools.PropagateNoise(self,NoiseModel))
         else:
             Noise = None
         # Obtain corresponding distribution (KDE)
+        if verbose:
+            print('Obtaining the distribution in the CCA space . . .')
         if (self.KDE.Dist[0] is None):
             self.KDE.GetDist(Xvals=d_obs_c,Noise=Noise)
         if Graphs:
             self.KDE.ShowKDE(Xvals=d_obs_c)
         # Sample models:
+        if verbose:
+            print('Sampling models and back-transformation . . .')
         if self.MODPARAM.cond is None:
             samples_CCA = self.KDE.SampleKDE(nbSample=nbSamples)
             # Back transform models to original space:
@@ -843,10 +850,12 @@ class POSTBEL:
                     achieved = True
                 nbTestsMax -= 1
                 if nbTestsMax < 0:
-                    raise Exception('Impossible to sample models in the current prior under reasonable timings!')
+                    raise Exception('Impossible to sample models in the current posterior under reasonable timings!')
+            if verbose:
+                print('{} models sampled from the posterior model space!'.format(nbSamples))
             self.SAMPLES = Samples
     
-    def runMCMC(self, NoiseModel=None, nbSamples=10000, nbChains=10, verbose:bool=False):
+    def runMCMC(self, NoiseModel=None, nbSamples:int=10000, nbChains=10, verbose:bool=False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
         on the last posterior model space (POSTBEL). 
 
@@ -864,15 +873,17 @@ class POSTBEL:
             raise Exception('No noise model provided. Impossible to compute the likelihood')
         if len(NoiseModel) != len(self.DATA['True'][0,:]):
             raise Exception('NoiseModel should have the same size as the dataset')
-        timeIn = time.time()
+        timeIn = time.time() # For the timer
         nbParam = len(self.MODPARAM.prior)
         accepted = np.zeros((nbChains, nbSamples, nbParam))
         acceptedData = np.zeros((nbChains, nbSamples, len(self.DATA['True'][0,:])))
         for j in range(nbChains):
+            if verbose:
+                print('Running chain {} out of {}. . .'.format(j, nbChains))
             rejectedNb = 0
             i = 0
             LikelihoodLast = 1e-50 # First sample most likely accepted
-            Covariance = 0.01*np.cov(self.SAMPLES.T) # Compute the initial covariance from the prior distribution
+            Covariance = 0.01*np.cov(self.SAMPLES.T) # Compute the initial covariance from the posterior distribution
             passed = False
             while i < nbSamples:
                 if i == 0:
@@ -882,7 +893,6 @@ class POSTBEL:
                     samples_PCA = np.matmul(samples_CCA,self.CCA.y_loadings_.T)
                     samples_PCA *= self.CCA.y_std_
                     samples_PCA += self.CCA.y_mean_
-                    # samples_PCA = self.CCA.inverse_transform(samples_CCA)
                     if self.PCA['Model'] is None:
                         sampleCurr = samples_PCA 
                     else:
@@ -916,20 +926,24 @@ class POSTBEL:
                 else:
                     rejectedNb += 1
                 if np.mod(i,50) == 0 and not(passed):
-                    # LikelihoodLast = 1e-50
+                    if verbose:
+                        print('{} models sampled (out of {}) in chain {}.'.format(i, nbSamples, j))
                     AcceptanceRatio = i/(rejectedNb+i)
                     if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                        if verbose:
+                            print('Acceptance ratio too low, reducing covariance.')
                         Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
                     elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                        if verbose:
+                            print('Acceptance ratio too high, increasing covariance.')
                         Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
-                    # print(f'{i} models drawn out of {nbSamples} in chain {j} - Acceptance rate = {AcceptanceRatio}')
                     passed = True
                 LikelihoodLast = Likelihood
         if verbose:
             print(f'MCMC on POSTBEL executed in {time.time()-timeIn} seconds.')
         return np.asarray(accepted), np.asarray(acceptedData)
 
-    def DataPost(self, Parallelization=[False,None],verbose:bool=False, OtherModels=None):
+    def DataPost(self, Parallelization=[False,None], OtherModels=None, verbose:bool=False):
         '''DATAPOST is a function that computes the forward model for all the 
         models sampled from the posterior.
 
@@ -939,6 +953,10 @@ class POSTBEL:
                     o [True, None]: parallel runs without pool provided
                     o [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided 
+            - OtherModels (np.ndarray): a numpy array containing models that have the
+                                        same formatting as the one originating from the 
+                                        POSTBEL method. The methdo returns the forward 
+                                        models for those instead of the POSTBEL sampled.
             - verbose (bool): output progresses messages (True) or not (False - default)
         '''
         if OtherModels is not None:
@@ -952,6 +970,8 @@ class POSTBEL:
             if verbose:
                 print('Forward modelling already conducted!')
             return SAMPLESDATA
+        if verbose:
+            print('Computing the forward model . . .')
         indexCurr = 0
         while True:
             try:
@@ -1025,7 +1045,7 @@ class POSTBEL:
         if len(NoiseModel) != len(self.DATA['True'][0,:]):
             raise Exception('NoiseModel should have the same size as the dataset')
         timeIn = time.time()
-        self.DataPost(Parallelization=Parallelization)
+        self.DataPost(Parallelization=Parallelization, verbose=verbose)
         Likelihood = np.zeros(len(self.SAMPLESDATA),)
         for i, SynData in enumerate(self.SAMPLESDATA):
             FieldError = NoiseModel
@@ -1035,7 +1055,6 @@ class POSTBEL:
             Likelihood[i] = np.prod(np.multiply(A, B))
         Order = random.permutation(len(Likelihood))
         LikelihoodOrder = Likelihood[Order]
-        LikelihoodRatio = LikelihoodOrder[1:]/LikelihoodOrder[:-1]
         Accepted = [Order[0]]
         LikeLast = LikelihoodOrder[0]
         nbRejected = 0
