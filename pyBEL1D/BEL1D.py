@@ -724,6 +724,9 @@ class POSTBEL:
     field data acquisition. It takes as argument:
         - PREBEL (PREBEL class object): the PREBEL object from 
                                         PREBEL class
+
+    The class object has multiple attributes. Some of those are 
+    
     """
     def __init__(self,PREBEL:PREBEL):
         self.nbModels = PREBEL.nbModels
