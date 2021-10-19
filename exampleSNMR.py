@@ -74,11 +74,7 @@ def testIter(nbIter=5):
         else:
             ModLastIter = PostbelTest.SAMPLES
             # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
-            # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-            MixingUpper += 1
-            MixingLower += 1
-            Mixing = MixingUpper/MixingLower
-            PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=10,Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
+            PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=10)
             # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
             print(idxIter+1)
             PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -86,8 +82,8 @@ def testIter(nbIter=5):
             means[idxIter,:], stds[idxIter,:] = PostbelTest.GetStats()
             end = time.time()
             timings[idxIter] = end-start
-        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-4)
-        print('Wasserstein distance: {}'.format(distance))
+        diverge, distance = Tools.ConvergeTest(SamplesA=ModLastIter,SamplesB=PostbelTest.SAMPLES, tol=5e-3)
+        print('KS distance: {}'.format(distance))
         if not(diverge):
             print('Model has converged at iter {}!'.format(idxIter+1))
             break

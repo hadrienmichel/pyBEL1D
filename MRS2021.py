@@ -41,7 +41,7 @@ if __name__ == '__main__':
     KernelBenchmark = "Data/sNMR/MRS2021.mrsk" # Kernel file for the benchmark case.
     TimingsBenchmark = np.arange(0.005, 0.5, 0.002)
 
-    RunBenchmark = False
+    RunBenchmark = True
     if RunBenchmark:
         ParallelComputing = True
         if ParallelComputing:

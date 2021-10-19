@@ -135,11 +135,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             else:
                 ModLastIter = PostbelTest.SAMPLES
                 # Here, we will use the POSTBEL2PREBEL function that adds the POSTBEL from previous iteration to the prior (Iterative prior resampling)
-                # However, the computations are longer with a lot of models, thus you can opt-in for the "simplified" option which randomely select up to 10 times the numbers of models
-                MixingUpper += 1
-                MixingLower += 1
-                Mixing = MixingUpper/MixingLower
-                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Parallelization=[parallel,pool],Simplified=True,nbMax=nbModPre,MixingRatio=Mixing)
+                PrebelIter = BEL1D.PREBEL.POSTBEL2PREBEL(PREBEL=PrebelIter,POSTBEL=PostbelTest,Dataset=Dataset,NoiseModel=ErrorModel,Parallelization=[parallel,pool])
                 # Since when iterating, the dataset is known, we are not computing the full relationship but only the posterior distributions directly to gain computation timing
                 print(idxIter+1)
                 PostbelTest = BEL1D.POSTBEL(PrebelIter)
@@ -174,6 +170,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         nbIter = 10
         timings, means, stds, names, distance = testIter(nbIter=nbIter)
         print('Total time: {} seconds'.format(np.sum(timings)))
+        fig = pyplot.figure()
         pyplot.plot(np.arange(len(timings)),timings)
         pyplot.ylabel('Computation Time [sec]')
         pyplot.xlabel('Iteration nb.')

@@ -72,7 +72,7 @@ def Sampling(prior:list,conditions=None,nbModels:int=1000):
     # Return the sampled models
     return Models
 
-def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
+def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None, verbose:bool=False):
     '''PROPAGATENOISE is a function that computes the impact of noise on the PCA scores
     for a given problem (POSTBEL) and a given noise level (NoiseLevel).
 
@@ -190,7 +190,7 @@ def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
     
     It returns:
         - diverge (bool): True if the samples diverge, False otherwise
-        - distance (float): the mean Wasserstein distance
+        - distance (float): the maximum distance
 
     '''
     import numpy as np 

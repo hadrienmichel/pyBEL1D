@@ -11,7 +11,7 @@
 #       - (Not possible to parallelize (same seed for different workers))Sampling and checking conditions (all cores/thread operating) -> Can be usefull - not priority
 #   - (Done) Add iteration convergence critereon!
 #   - Lower the memory needs (how? not urgent)
-#   - Comment the codes!
+#   - (Done 19-10-21) Comment the codes!
 #   - (Done) Check KDE behaviour whit outliers (too long computations and useless?)
 
 # Importing custom libraries
@@ -24,6 +24,8 @@ import math as mt                           # Common mathematical functions
 import matplotlib                           # For graphical outputs
 from matplotlib import pyplot               # For matlab-like graphs
 import sklearn                              # For PCA and CCA decompositions
+import sklearn.decomposition                # For PCA decompositions
+import sklearn.cross_decomposition          # For CCA decompositions
 from scipy import stats                     # For the statistical distributions
 from pathos import multiprocessing as mp    # For parallelization (No issues with pickeling)
 from pathos import pools as pp              # For parallelization
@@ -103,19 +105,19 @@ class MODELSET:
                                             conditions or not (False)
         - method (string): name of the method (e.g. "sNMR")
         - forwardFun (dictionary): a dictionary with two entries
-                o "Fun" (callable lambda function): the forward model function for a given 
+                - "Fun" (callable lambda function): the forward model function for a given 
                                                     model
-                o "Axis" (np.array): the X axis along which the computation is done
+                - "Axis" (np.array): the X axis along which the computation is done
         - paramNames (dictionary): a dictionary with multiple entries
-                o "NamesFU" (list): Full names of all the parameters with units
-                o "NamesSU" (list): Short names of all the parameters with units
-                o "NamesS" (list): Short names of all the parameters without units
-                o "NamesGlobal" (list): Full names of the global parameters (not layered)
-                o "NamesGlobalS" (list): Short names of the global parameters (not layered)
-                o "DataUnits" (string): Units for the dataset,
-                o "DataName" (string): Name of the Y-axis of the dataset (result from the 
+                - "NamesFU" (list): Full names of all the parameters with units
+                - "NamesSU" (list): Short names of all the parameters with units
+                - "NamesS" (list): Short names of all the parameters without units
+                - "NamesGlobal" (list): Full names of the global parameters (not layered)
+                - "NamesGlobalS" (list): Short names of the global parameters (not layered)
+                - "DataUnits" (string): Units for the dataset,
+                - "DataName" (string): Name of the Y-axis of the dataset (result from the 
                                         forward model)
-                o "DataAxis" (string): Name of the X-axis of the dataset
+                - "DataAxis" (string): Name of the X-axis of the dataset
         - nbLayer (int): the number of layers for the model (None if not layered)
     '''
 
@@ -301,9 +303,9 @@ class PREBEL:
                                 dimensions (nbModels * len(data))
         - PCA (dict): a dictionnary containing the PCA reduction with 
                       their mathematical descriptions:
-            o 'Data': a sklearn.decompostion.PCA object with the PCA
+            - 'Data': a sklearn.decompostion.PCA object with the PCA
                       decomposition for the data dimensions.
-            o 'Models': a sklearn.decompostion.PCA object with the PCA
+            - 'Models': a sklearn.decompostion.PCA object with the PCA
                         decomposition for the models dimensions. If no
                         PCA reduction is applied to the model space, 
                         the value is *None*
@@ -331,9 +333,9 @@ class PREBEL:
         It is an instance method that does not need any arguments.
         Howerev, optional arguments are:
             - Parallelization (list): instructions for parallelization
-                o [False, ?]: no parallel runs
-                o [True, None]: parallel runs without pool provided
-                o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                - [False, ?]: no parallel runs
+                - [True, None]: parallel runs without pool provided
+                - [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                 provided
                 The default is no parallel runs.
             - RemoveOutlier (bool): simplifie the KDE computation by removing models
@@ -480,9 +482,9 @@ class PREBEL:
             - Dataset (np.array): the field dataset
             - NoiseModel (list): the list defining the noise model (see dedicated functions)
             - Parallelization (list): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                    - [False, _]: no parallel runs (default)
+                    - [True, None]: parallel runs without pool provided
+                    - [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided 
             - reduceModels (bool): apply PCA reduction to the models (True) or not (False).
                                    Default value is *False*
@@ -739,9 +741,9 @@ class POSTBEL:
                             Originating from the PREBEL object.
         - PCA (dict): a dictionnary containing the PCA reduction with 
                       their mathematical descriptions:
-            o 'Data': a sklearn.decompostion.PCA object with the PCA
+            - 'Data': a sklearn.decompostion.PCA object with the PCA
                       decomposition for the data dimensions.
-            o 'Models': a sklearn.decompostion.PCA object with the PCA
+            - 'Models': a sklearn.decompostion.PCA object with the PCA
                         decomposition for the models dimensions. If no
                         PCA reduction is applied to the model space, 
                         the value is *None*
@@ -750,9 +752,9 @@ class POSTBEL:
         - MODPARAM (MODELSET): the full MODELSET object (see class 
                                description).
         - DATA (dict): dictionary containing the field dataset.
-            o 'True': The dataset in the original dimension.
-            o 'PCA': The dataset in the PCA-reduced space.
-            o 'CCA': The dataset in the CCA-projected space.
+            - 'True': The dataset in the original dimension.
+            - 'PCA': The dataset in the PCA-reduced space.
+            - 'CCA': The dataset in the CCA-projected space.
         - SAMPLES (np.ndarray): The models sampled from the posterior
                                 model space.
         - SAMPLESDATA (np.ndarray): The datasets corresponding to the 
@@ -953,9 +955,9 @@ class POSTBEL:
 
         The optional arguments are:
             - Parallelization (list): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                    - [False, _]: no parallel runs (default)
+                    - [True, None]: parallel runs without pool provided
+                    - [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided 
             - OtherModels (np.ndarray): a numpy array containing models that have the
                                         same formatting as the one originating from the 
@@ -1057,9 +1059,9 @@ class POSTBEL:
             - NoiseModel (np.array): an array containing the noise level for every 
                                      datapoints (same size as the dataset).
             - Parallelization (list): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                    - [False, _]: no parallel runs (default)
+                    - [True, None]: parallel runs without pool provided
+                    - [True, pool]: parallel runs with pool (defined by pathos.pools) 
                                     provided
             - verbose (bool): output progresses messages (True) or not (False - default)
         
@@ -1268,9 +1270,9 @@ class POSTBEL:
                             (default=False)
             - Best (int): only show the X best models (X is the argument)
             - Parallelization (list): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                    - [False, _]: no parallel runs (default)
+                    - [True, None]: parallel runs without pool provided
+                    - [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                     provided
             - NoiseModel (np.ndarray): an array containing the estimated noise for 
                                        every datapoints. If provided, we are using
@@ -1419,9 +1421,9 @@ class POSTBEL:
                             (default=False)
             - Best (int): only show the X best models (X is the argument)
             - Parallelization (list): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined bypathos.pools) 
+                    - [False, _]: no parallel runs (default)
+                    - [True, None]: parallel runs without pool provided
+                    - [True, pool]: parallel runs with pool (defined bypathos.pools) 
                                     provided
             - OtherData (np.ndarray): an array containing the simulated data for the
                                       other set of models
@@ -1611,10 +1613,10 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         - Dataset: The true field dataset to be fitted
         - NoiseEstimate: The estimated noise level
         - Parallelization (list=[False,None]): parallelization instructions
-                    o [False, _]: no parallel runs (default)
-                    o [True, None]: parallel runs without pool provided
-                    o [True, pool]: parallel runs with pool (defined by pathos.pools) 
-                                    provided
+                - [False, _]: no parallel runs (default)
+                - [True, None]: parallel runs without pool provided
+                - [True, pool]: parallel runs with pool (defined by pathos.pools) 
+                                provided
         - nbModelsBase (int=1000): the number of models to sample in the initial prior
         - nbModelsSample (int=None): the number of models sampled to build the posterior. 
                                      If None, the number is equal to nbModelBase
@@ -1639,7 +1641,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         - statsReturn (list - optional): a list containing the statistics at the different
                                          iterations. The statistics are contained in a 
                                          StatsResults class object. This argument is only
-                                         outputted if the stats input is set to *True*
+                                         outputted if the stats input is set to *True*.
     '''
     # Loading some utilities:
     import numpy as np
@@ -1656,7 +1658,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         print('Starting iterations . . .')
     start = time.time()
     Prebel = PREBEL(MODPARAM=MODEL, nbModels=nbModelsBase)
-    Prebel.run(Parallelization=Parallelization)
+    Prebel.run(Parallelization=Parallelization, verbose=verbose)
     PrebelInit = Prebel
     ModelLastIter = Prebel.MODELS
     statsNotReturn = True
@@ -1687,12 +1689,12 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             nbSamples = int(nbModelsSample/(1-Rejection))
             nbPostAdd = nbSamples
         Postbel = POSTBEL(Prebel)
-        Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate)
+        Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate, verbose=verbose)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
         if Graphs:
             if it == 0:
                 Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
-        Postbel.DataPost(Parallelization=Parallelization)
+        Postbel.DataPost(Parallelization=Parallelization, verbose=verbose)
         # Testing for convergence (5% probability of false positive):
         if len(ModelLastIter) > nSamplesConverge:
             nbConvergeSamp = nSamplesConverge
@@ -1700,6 +1702,8 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             nbConvergeSamp = len(ModelLastIter)
         threshold = 1.87*nbConvergeSamp**(-0.50)# Power law defined from the different tests
         diverge, distance = Tools.ConvergeTest(SamplesA=ModelLastIter,SamplesB=Postbel.SAMPLES, tol=threshold)
+        if verbose:
+            print('KS distance at iter {}: {} (threshold at {}).'.format(it, distance, threshold))
         if stats:
             means, stds = Postbel.GetStats()
             statsReturn.append(StatsResults(means, stds, end-start, distance))
@@ -1709,8 +1713,8 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             if verbose:
                 print('Model has converged at iter {}.'.format(it))
             if Graphs:
-                NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate)
-                Postbel.KDE.KernelDensity(NoiseError=NoiseToLastPrebel, RemoveOutlier=True, Parallelization=Parallelization)
+                NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate, verbose=verbose)
+                Postbel.KDE.KernelDensity(NoiseError=NoiseToLastPrebel, RemoveOutlier=True, verbose=verbose)
                 Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
             break
         ModelLastIter = Postbel.SAMPLES
