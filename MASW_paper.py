@@ -239,7 +239,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 # DREAM = np.unique(DREAM,axis=0)
                 print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM: {}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
                 Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True, alpha=[0.02, 0.06]) # They are 3 times more models for BEL1D than DREAM
-                DREAM_Data = Postbel.DataPost(Parallelization=ppComp, OtherModels=DREAM)
+                DREAM_Models, DREAM_Data = Postbel.DataPost(Parallelization=ppComp, OtherModels=DREAM)
                 Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=DREAM, OtherData=DREAM_Data, OtherRMSE=True)
                 CurrentGraph = pyplot.gcf()
                 CurrentAxes = CurrentGraph.get_axes()[0]

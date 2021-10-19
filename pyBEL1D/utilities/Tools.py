@@ -180,7 +180,7 @@ def PropagateNoise(POSTBEL,NoiseLevel=None, DatasetIn=None):
 
 nSamplesConverge = 1000
 def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
-    ''' CONVERGETEST is a function that returns the mean Wasserstein distance between 
+    ''' CONVERGETEST is a function that returns the maximum Kolmogorov-Smirnov distance between 
     two sets of N-dimensional datapoints.
     
     It takes as arguments:
@@ -208,66 +208,56 @@ def ConvergeTest(SamplesA, SamplesB, tol=5e-3):
         SamplesB = SamplesB[idxKeepB,:]
     SamplesANorm, norms = normalize(SamplesA,axis=0,return_norm=True)
     SamplesBNorm = SamplesB/norms
-    # SamplesANorm = SamplesA
-    # SamplesBNorm = SamplesB
     distance = np.zeros(nbDim)
-    # nbVal = 0
-    Entropy = False
-    Wasserstein = False
+    # Entropy = False
+    # Wasserstein = False
     KStest = True
     for i in range(nbDim):
         # Check if the 1D distributions are similar
         # nbVal += 1
         # Convert the samples into probabilities:
-        if Entropy:
-            minBins = np.min([np.min(SamplesANorm,axis=0),np.min(SamplesBNorm,axis=0)],axis=0)
-            maxBins = np.max([np.max(SamplesANorm,axis=0),np.max(SamplesBNorm,axis=0)],axis=0)
-            binsCompute = np.linspace(minBins[i],maxBins[i],num=int(len(SamplesANorm[:,i])/10))
-            pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
-            pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
-            while (pdf1==0).any() or (pdf2==0).any():
-                idx0_1 = np.ravel(np.equal(pdf1,0).nonzero())
-                idx0_2 = np.ravel(np.equal(pdf2,0).nonzero())
-                if idx0_1.size: # There is (at least) a zero value in the first pdf
-                    while idx0_1.size:
-                        if idx0_1[0] == 0:
-                            binsCompute = np.delete(binsCompute,1)
-                            idx0_1 = np.delete(idx0_1,0)
-                            idx0_1 = idx0_1 - 1
-                        else:
-                            binsCompute = np.delete(binsCompute,idx0_1)
-                            idx0_1 = np.array([])
-                    pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
-                    pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
-                elif idx0_2.size: # There is (at least) a zero value in the first pdf
-                    while idx0_2.size:
-                        if idx0_2[0] == 0:
-                            binsCompute = np.delete(binsCompute,1)
-                            idx0_2 = np.delete(idx0_2,0)
-                            idx0_2 = idx0_2 - 1
-                        else:
-                            binsCompute = np.delete(binsCompute,idx0_2)
-                            idx0_2 = np.array([])
-                    pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
-                    pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
-            distance[i] = stats.entropy(pdf1,pdf2)
-        if Wasserstein:
-            distance[i] = stats.wasserstein_distance(SamplesANorm[:,i],SamplesBNorm[:,i]) # Return wasserstein distance between distributions --> "Small" = converged
+        # if Entropy:
+        #     minBins = np.min([np.min(SamplesANorm,axis=0),np.min(SamplesBNorm,axis=0)],axis=0)
+        #     maxBins = np.max([np.max(SamplesANorm,axis=0),np.max(SamplesBNorm,axis=0)],axis=0)
+        #     binsCompute = np.linspace(minBins[i],maxBins[i],num=int(len(SamplesANorm[:,i])/10))
+        #     pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
+        #     pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
+        #     while (pdf1==0).any() or (pdf2==0).any():
+        #         idx0_1 = np.ravel(np.equal(pdf1,0).nonzero())
+        #         idx0_2 = np.ravel(np.equal(pdf2,0).nonzero())
+        #         if idx0_1.size: # There is (at least) a zero value in the first pdf
+        #             while idx0_1.size:
+        #                 if idx0_1[0] == 0:
+        #                     binsCompute = np.delete(binsCompute,1)
+        #                     idx0_1 = np.delete(idx0_1,0)
+        #                     idx0_1 = idx0_1 - 1
+        #                 else:
+        #                     binsCompute = np.delete(binsCompute,idx0_1)
+        #                     idx0_1 = np.array([])
+        #             pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
+        #             pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
+        #         elif idx0_2.size: # There is (at least) a zero value in the first pdf
+        #             while idx0_2.size:
+        #                 if idx0_2[0] == 0:
+        #                     binsCompute = np.delete(binsCompute,1)
+        #                     idx0_2 = np.delete(idx0_2,0)
+        #                     idx0_2 = idx0_2 - 1
+        #                 else:
+        #                     binsCompute = np.delete(binsCompute,idx0_2)
+        #                     idx0_2 = np.array([])
+        #             pdf1,_ = np.histogram(SamplesANorm[:,i],bins=binsCompute)
+        #             pdf2,_ = np.histogram(SamplesBNorm[:,i],bins=binsCompute)
+        #     distance[i] = stats.entropy(pdf1,pdf2)
+        # if Wasserstein:
+        #     distance[i] = stats.wasserstein_distance(SamplesANorm[:,i],SamplesBNorm[:,i]) # Return wasserstein distance between distributions --> "Small" = converged
         if KStest:
             D, pvalue =  stats.ks_2samp(SamplesANorm[:,i],SamplesBNorm[:,i])
             distance[i] = D
     
-    # if not(KStest):
     distance = np.max(distance)
     if distance <= tol:
         diverge = False
     else:
         diverge = True
-    # else:
-    #     distance = np.min(distance)
-    #     if distance >= tol:
-    #         diverge = False
-    #     else:
-    #         diverge = True
         
     return diverge, distance
