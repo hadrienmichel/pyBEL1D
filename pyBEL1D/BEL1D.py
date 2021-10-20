@@ -1678,7 +1678,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         SavePREBEL(Prebel,saveItersFolder + '/IPR')
     for it in range(nbIterMax):
         if verbose:
-            print('Iteration {} running.'.format(it))
+            print('\n\n\nIteration {} running.\n\n'.format(it))
         # Iterating:
         if Mixing is not None:
             nbModPrebel = Prebel.nbModels

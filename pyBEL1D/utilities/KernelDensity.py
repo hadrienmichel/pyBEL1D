@@ -228,7 +228,8 @@ class KDE:
                         dataset = np.delete(dataset,np.where(isoutlier),0)
                         LNew = dataset.shape
                         LNew = LNew[0] # Only keeping the length of the dataset
-                        print('{} outlier removed!'.format(L-LNew))
+                        if verbose:
+                            print('{} outlier removed!'.format(L-LNew))
                         L = LNew
 
                 # Defining the bands to test and choose the optimal one

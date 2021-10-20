@@ -1,101 +1,98 @@
 '''In this script, all the operations that are presented in the paper called 
-"Using Iterative Prior Resampling to improve Bayesian Evidential Learning 1D 
-imaging (BEL1D) accuracy: the case of surface waves" are performed and explained.
+"Using Iterative Prior Resampling to improve Bayesian Evidential Learning 1D
+imaging (BEL1D): application to surface waves" are performed and explained.
 
 The different graphs that are originating from the python script are also 
 outputted here.
 '''
-from os import pardir
-from matplotlib.lines import Line2D
-import numpy as np
-
-### For reproductibility - Random seed fixed
-RandomSeed = False # If True, use true random seed, else (False), fixed for reproductibility (seed=0)
-### End random seed fixed
-
-
 if __name__=="__main__": # To prevent recomputation when in parallel
+    #########################################################################################
+    ###           Import the different libraries that are used in the script              ###
+    #########################################################################################
+    ## Common libraries:
+    import numpy as np                              # For matrix-like operations and storage
+    import os                                       # For files structures and read/write operations
+    from os import listdir                          # To retreive elements from a folder
+    from os.path import isfile, join                # Common files operations
+    from matplotlib import pyplot                   # For graphics on post-processing
+    import time                                     # For simple timing measurements
 
-    from pyBEL1D import BEL1D
-    import cProfile # For debugging and timings measurements
-    import time # For simple timing measurements
-    from matplotlib import pyplot # For graphics on post-processing
-    from pyBEL1D.utilities import Tools # For further post-processing
-    import os
-    from os import listdir
-    from os.path import isfile, join
+    ## Libraries for parallel computing:
+    from pathos import multiprocessing as mp        # Multiprocessing utilities (get CPU cores info)
+    from pathos import pools as pp                  # Building the pool to use for computations
 
-    from pathos import multiprocessing as mp
-    from pathos import pools as pp
+    ## BEL1D requiered libraries:
+    from scipy import stats                         # To build the prior model space
+    from pyBEL1D import BEL1D                       # The main code for BEL1D
+    from pyBEL1D.utilities import Tools             # For further post-processing
+    from pyBEL1D.utilities.Tools import multiPngs   # For saving the figures as png
 
-    from pysurf96 import surf96
-    from scipy import stats
-
-    def multipage(filename, figs=None, dpi=300):
-        from matplotlib.backends.backend_pdf import PdfPages
-        import matplotlib.pyplot as plt
-        pp = PdfPages(filename)
-        if figs is None:
-            figs = [plt.figure(n) for n in plt.get_fignums()]
-        for fig in figs:
-            fig.savefig(pp, format='pdf')
-        pp.close()
-    
-    def multiPngs(folder, figs=None, dpi=300):
-        import matplotlib.pyplot as plt
-        from os.path import join
-        if figs is None:
-            figs = [plt.figure(n) for n in plt.get_fignums()]
-        i = 1
-        for fig in figs:
-            fig.savefig(join(folder,'Figure{}.png'.format(i)),dpi=dpi, format='png')
-            i += 1
-
-    Graphs = True
-    ParallelComputing = True
+    ## Forward modelling code:
+    from pysurf96 import surf96                     # Code for the forward modelling of dispersion curves
+    #########################################################################################
+    ###                    Flags for the different computation possible                   ###
+    #########################################################################################
+    '''
+    For reproductibility of the results, we can fix the random seed.
+    To fix the random seed, set RamdomSeed to False. Otherwise, the
+    seed will be provided by the operating system.
+    Note that the results exposed in the publication are performed
+    under Windows 10 running python 3.7.6 (numpy=1.16.5, scikit-
+    learn=0.23.1 and scipy=1.5.0).
+    We observed that the random function does not necesseraly produce
+    exactly the same results under other environments (and python 
+    versions)!
+    '''
+    RandomSeed = False          # If True, use true random seed, else (False), fixed for reproductibility (seed=0)
+    '''
+    Some input parameters, to obtain some results or others.
+    Eventhough the computations are relativelly fast, producing the 
+    different graphs might be very cumbersome (matplotlib produces 
+    nice figures, but is very slow).
+    '''
+    Graphs = True               # Obtain all the graphs?
+    ParallelComputing = True    # Use parallel computing whenever possible?
+    BenchmarkCompute = True     # Compute the results for the benchmark model?
+    TestOtherNbLayers = False   # Testing the benchmark model with more layers than what is really in the model. Only active if BenchmarkCompute is.
+    MirandolaCompute = False    # Compute the results for the Mirandola case study?
+    DiscussionCompute = False   # Compute the necessary results for the discussion? WARNING: VERY LONG COMPUTATIONS
+    verbose = True              # Output all the details about the current progress of the computations
+    stats = True                # Parameter for the computation/retrun of statistics along with the iterations.
+    #########################################################################################
+    ###                            Initilizing the parallel pool                          ###
+    #########################################################################################
     if ParallelComputing:
-        pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
+        pool = pp.ProcessPool(mp.cpu_count()) # Create the parallel pool with at most the number of dimensions
         ppComp = [True, pool]
     else:
         ppComp = [False, None] # No parallel computing
     #########################################################################################
-    ###                         Synthetic case for Vs and e only                          ###
+    ###                           Defining the benchmark model                            ###
     #########################################################################################
-    Test1=True
-    if Test1:
-        ### For reproductibility - Random seed fixed
-        if not(RandomSeed):
-            np.random.seed(0) # For reproductibilty
-            from random import seed
-            seed(0)
-        ### End random seed fixed
-        # Define the model:
-        TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])#Thickness and Vs only
-        Vp = np.asarray([0.300, 0.750, 1.5])
-        rho = np.asarray([1.5, 1.9, 2.2])
-        nLayer = 3
-        Frequency = np.logspace(0.1,1.5,50)
-        Periods = np.divide(1,Frequency)
-        # model = model.append(rho)
+    def buildMODELSET():
+        '''BUILDMODELSET is a function that will build the benchmark model.
+        It does not take any arguments. '''
+        # Values for the benchmark model parameters: 
+        TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])   # Thickness and Vs for the 3 layers (variable of the problem)
+        Vp = np.asarray([0.300, 0.750, 1.5])                        # Vp for the 3 layers
+        rho = np.asarray([1.5, 1.9, 2.2])                           # rho for the 3 layers
+        nLayer = 3                                                  # Number of layers in the model
+        Frequency = np.logspace(0.1,1.5,50)                         # Frequencies at which the signal is simulated
+        Periods = np.divide(1,Frequency)                            # Corresponding periods
         # Forward modelling using surf96:
-        DatasetClean = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        Dataset = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        # Building the noise model (Boaga et al., 2011)
         ErrorModelSynth = [0.075, 20]
-        NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*DatasetClean*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+        NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*Dataset*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
         RMSE_Noise = np.sqrt(np.square(NoiseEstimate).mean(axis=-1))
-        print('The RMSE for the clean dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
-        # np.savetxt('MASW_BenchmarkDataset.txt', DatasetClean)
-        # np.savetxt('MASW_BenchamrkNoise.txt', NoiseEstimate)
-        # np.save('NoiseEstimateTest.npy',NoiseEstimate)
-        # randVal = 0#np.random.randn(1)
-        # print("The dataset is shifted by {} times the NoiseLevel".format(randVal))
-        # Dataset = DatasetClean + randVal*NoiseEstimate
-        Dataset = DatasetClean
-        # Define the prior:
+        print('The RMSE for the dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
+        # Define the prior model space:
         # Find min and max Vp for each layer in the range of Poisson's ratio [0.2, 0.45]:
         # For Vp1=0.3, the roots are : 0.183712 and 0.0904534 -> Vs1 = [0.1, 0.18]
         # For Vp2=0.75, the roots are : 0.459279 and 0.226134 -> Vs2 = [0.25, 0.45]
         # For Vp3=1.5, the roots are : 0.918559 and 0.452267 -> Vs2 = [0.5, 0.9]
-        prior = np.array([[0.001, 0.03, 0.1, 0.18],[0.01, 0.1, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
+        prior = np.array([[0.001, 0.03, 0.1, 0.18],[0.01, 0.1, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])# Thicknesses min and max, Vs min and max for each layers.
+        # Defining names of the variables (for graphical outputs).
         nParam = 2 # e and Vs
         ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
         NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
@@ -127,43 +124,57 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                       "DataUnits":"[km/s]",
                       "DataName":"Phase\\ velocity\\ [km/s]",
                       "DataAxis":"Periods\\ [s]"}
+        # Defining the forward modelling function
         def funcSurf96(model):
             import numpy as np
             from pysurf96 import surf96
-            Vp = np.asarray([0.300, 0.750, 1.5])
-            rho = np.asarray([1.5, 1.9, 2.2])
-            nLayer = 3
-            Frequency = np.logspace(0.1,1.5,50)
-            Periods = np.divide(1,Frequency)
-            return surf96(thickness=np.append(model[0:nLayer-1], [0]),
-                          vp=Vp,
-                          vs=model[nLayer-1:2*nLayer-1],
-                          rho=rho,
-                          periods=Periods,
-                          wave="rayleigh",
-                          mode=1,
-                          velocity="phase",
-                          flat_earth=True)
+            Vp = np.asarray([0.300, 0.750, 1.5])    # Defined again inside the function for parallelization
+            rho = np.asarray([1.5, 1.9, 2.2])       # Idem
+            nLayer = 3                              # Idem
+            Frequency = np.logspace(0.1,1.5,50)     # Idem
+            Periods = np.divide(1,Frequency)        # Idem
+            return surf96(thickness=np.append(model[0:nLayer-1], [0]),  # The 2 first values of the model are the thicknesses
+                          vp=Vp,                                        # Fixed value for Vp
+                          vs=model[nLayer-1:2*nLayer-1],                # The 3 last values of the model are the Vs
+                          rho=rho,                                      # Fixed value for rho
+                          periods=Periods,                              # Periods at which to compute the model
+                          wave="rayleigh",                              # Type of wave to simulate
+                          mode=1,                                       # Only compute the fundamental mode
+                          velocity="phase",                             # Use phase velocity and not group velocity
+                          flat_earth=True)                              # Local model where the flat-earth hypothesis makes sens
 
         forwardFun = funcSurf96
         forward = {"Fun":forwardFun,"Axis":Periods}
+        # Building the function for conditions (here, just checks that a sampled model is inside the prior)
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         # Initialize the model parameters for BEL1D
-        nbModelsBase = 1000
         ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
-
-        stats = True
+        return TrueModel, Periods, Dataset, NoiseEstimate, ModelSynthetic
+    #########################################################################################
+    ###                         Synthetic case for Vs and e only                          ###
+    #########################################################################################
+    if BenchmarkCompute:
+        print('\n\n\nComputing for the benchmark model!\n\n\n')
+        ### For reproductibility - Random seed fixed
+        if not(RandomSeed):
+            np.random.seed(0) # For reproductibilty
+            from random import seed
+            seed(0)
+        ### End random seed fixed
+        
+        # Initializing the model:
+        TrueModel, Periods, Dataset, NoiseEstimate, ModelSynthetic = buildMODELSET()
+        nbModelsBase = 1000
         def MixingFunc(iter:int) -> float:
             return 1# Always keeping the same proportion of models as the initial prior
         if stats:
             Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                            nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,
-                                                           Graphs=Graphs, TrueModel=TrueModel, verbose=True)
+                                                           Graphs=Graphs, TrueModel=TrueModel, verbose=verbose)
         else:
             Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                     nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs, TrueModel=TrueModel)
         if Graphs:
-
             # Show final results analysis:
             if True: # First iteration results?
                 PostbelInit = BEL1D.POSTBEL(PrebelInit)
@@ -173,10 +184,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 PostbelInit.ShowDataset(RMSE=True, Prior=True)
                 CurrentGraph = pyplot.gcf()
                 CurrentGraph = CurrentGraph.get_axes()[0]
-                CurrentGraph.plot(Periods, DatasetClean+NoiseEstimate,'k--')
-                CurrentGraph.plot(Periods, DatasetClean-NoiseEstimate,'k--')
-                CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
-                CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, Dataset+NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, Dataset-NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, Dataset+2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, Dataset-2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset,'k')
                 PostbelInit.ShowPostModels(TrueModel=TrueModel, RMSE=True) #, NoiseModel=NoiseEstimate)
                 CurrentGraph = pyplot.gcf()
@@ -189,10 +200,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
                 CurrentGraph = pyplot.gcf()
                 CurrentGraph = CurrentGraph.get_axes()[0]
-                CurrentGraph.plot(Periods, DatasetClean+NoiseEstimate,'k--')
-                CurrentGraph.plot(Periods, DatasetClean-NoiseEstimate,'k--')
-                CurrentGraph.plot(Periods, DatasetClean+2*NoiseEstimate,'k:')
-                CurrentGraph.plot(Periods, DatasetClean-2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, Dataset+NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, Dataset-NoiseEstimate,'k--')
+                CurrentGraph.plot(Periods, Dataset+2*NoiseEstimate,'k:')
+                CurrentGraph.plot(Periods, Dataset-2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset,'k')
                 Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
                 Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)#,Parallelization=[True, pool])
@@ -247,7 +258,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentAxes.set_ylim(bottom=0.100, top=0.0)
                 CurrentGraph.suptitle("DREAM",fontsize=16)
             
-            if False: # Comparison MCMC/rejection?
+            if True: # Comparison MCMC/rejection?
                 ### For reproductibility - Random seed fixed
                 if not(RandomSeed):
                     np.random.seed(0) # For reproductibilty
@@ -257,8 +268,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ## Testing the McMC algorithm after BEL1D with IPR:
                 print('Executing MCMC on PREBEL . . .')
                 ## Executing MCMC on the prior:
-                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=20, NoiseModel=NoiseEstimate)# 10 independant chains of 50000 models
-                ## Extracting the after burn-in models (last 50%)
+                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=20, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 50000 models
+                ## Extracting the after burn-in models (last 75%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Init.shape[0]):
@@ -276,8 +287,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 
                 ## Exectuing MCMC on the posterior:
                 print('Executing MCMC on POSTBEL . . .')
-                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=20, NoiseModel=NoiseEstimate)# 10 independant chains of 10000 models
-                ## Extracting the after burn-in models (last 50%)
+                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=20, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 10000 models
+                ## Extracting the after burn-in models (last 75%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Final.shape[0]):
@@ -294,7 +305,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentGraph.suptitle("BEL1D + IPR + McMC",fontsize=16)
                 
                 print('Executing rejection on the BEL1D models . . .')
-                ModelsRejection, DataRejection = Postbel.runRejection(Parallelization=ppComp,NoiseModel=NoiseEstimate)
+                ModelsRejection, DataRejection = Postbel.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=verbose)
                 Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=ModelsRejection, OtherData=DataRejection) #, NoiseModel=NoiseEstimate)
                 CurrentGraph = pyplot.gcf()
                 CurrentAxes = CurrentGraph.get_axes()[0]
@@ -386,14 +397,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 pyplot.show(block=False)
 
             # Stop execution to display the graphs:
-            # multipage('Benchmark.pdf',dpi=300)
             multiPngs('BenchmarkFigs')
             pyplot.show()
         ##########
         # Testing the model with more layers (4, 5 and 6)
         ##########
         # We need to rebuild the MODELSET structure since the forward cannot be exctly the same (more layers means that the fixed parameters must change as well)
-        TestOtherNbLayers = False
         if TestOtherNbLayers:
             ### For reproductibility - Random seed fixed
             if not(RandomSeed):
@@ -401,6 +410,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 from random import seed
                 seed(0)
             ### End random seed fixed
+            Frequency = np.logspace(0.1,1.5,50)
             Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)
             CurrentGraph = pyplot.gcf()
             CurrentAxes = CurrentGraph.get_axes()[0]
@@ -513,7 +523,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
                 timeIn = time.time()
                 Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
-                                                        nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=True)
+                                                        nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=verbose)
                 timeOut = time.time()
                 print(f'Run for {nLayer} layers done in {timeOut-timeIn} seconds')
                 Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True) #, NoiseModel=NoiseEstimate)
@@ -527,8 +537,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     #########################################################################################
     ###                                 Mirandola test case                               ###
     #########################################################################################
-    Test2 = False
-    if Test2:
+    if MirandolaCompute:
         ### For reproductibility - Random seed fixed
         if not(RandomSeed):
             np.random.seed(0) # For reproductibilty
@@ -561,7 +570,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         RMSE_Noise = np.sqrt(np.square(NoiseEstimate).mean(axis=-1))
         print('The RMSE for the clean dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
         nbModelsBase = 10000
-        Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=True)
+        Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=verbose)
         Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
         Postbel.ShowPostModels(RMSE=True) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True)
@@ -614,15 +623,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ax.legend()
 
         pyplot.show(block=False)
-        # multipage('Mirandola.pdf',dpi=300)
         multiPngs('MirandolaFigs')
         pyplot.show()
-        
-    if ParallelComputing:
-        pool.terminate()
-
-    Discussion = False
-    if Discussion:
+    #########################################################################################
+    ###                               Discussion on benchmark                             ###
+    #########################################################################################    
+    if DiscussionCompute:
         '''
         First, we test only with the same model for every cases. The dataset is noisy!
 
@@ -631,7 +637,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             - Mixing ratio --> from 0.1 to 2 with 4 values on a linear space + no considerations on Mixing (None)
             - Rejection --> from 0 (no rejection) to 0.9 (90% rejection) with 5 values on a linear space
 
-        Each test is repeated 10 times (with different random noise added to the model). 
+        Each test is repeated 10 times. 
         After each pass, all the results are saved.
         '''
         ##################
@@ -648,70 +654,9 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             from random import seed
             seed(0)
         ### End random seed fixed
-        # Define the model:
-        TrueModel = np.asarray([0.01, 0.05, 0.120, 0.280, 0.600])#Thickness and Vs only
-        Vp = np.asarray([0.300, 0.750, 1.5])
-        rho = np.asarray([1.5, 1.9, 2.2])
-        nLayer = 3
-        Frequency = np.logspace(0.1,1.5,50)
-        Periods = np.divide(1,Frequency)
-        #model = model.append(rho)
-        # Forward modelling using surf96:
-        DatasetClean = surf96(thickness=np.append(TrueModel[0:nLayer-1], [0]),vp=Vp,vs=TrueModel[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
-        ErrorModelSynth = [0.075, 20]
-        NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*DatasetClean*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
-        # np.savetxt('MASW_BenchmarkDataset.txt', DatasetClean)
-        # np.savetxt('MASW_BenchamrkNoise.txt', NoiseEstimate)
-        # np.save('NoiseEstimateTest.npy',NoiseEstimate)
-        randVal = 0#np.random.randn(1)
-        print("The dataset is shifted by {} times the NoiseLevel".format(randVal))
-        Dataset = DatasetClean + randVal*NoiseEstimate
-        # Define the prior:
-        # Find min and max Vp for each layer in the range of Poisson's ratio [0.2, 0.45]:
-        # For Vp1=0.3, the roots are : 0.183712 and 0.0904534 -> Vs1 = [0.1, 0.18]
-        # For Vp2=0.75, the roots are : 0.459279 and 0.226134 -> Vs2 = [0.25, 0.45]
-        # For Vp3=1.5, the roots are : 0.918559 and 0.452267 -> Vs2 = [0.5, 0.9]
-        prior = np.array([[0.001, 0.03, 0.1, 0.18],[0.01, 0.1, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
-        nParam = 2 # e and Vs
-        ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
-        NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
-        NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
-        NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
-        Mins = np.zeros(((nLayer*nParam)-1,))
-        Maxs = np.zeros(((nLayer*nParam)-1,))
-        Units = ["\\ [km]", "\\ [km/s]"]
-        NFull = ["Thickness\\ ","s-Wave\\ velocity\\ "]
-        NShort = ["e_{", "Vs_{"]
-        ident = 0
-        for j in range(nParam):
-            for i in range(nLayer):
-                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
-                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
-                    Mins[ident] = prior[i,j*2]
-                    Maxs[ident] = prior[i,j*2+1]
-                    NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
-                    NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
-                    NamesShort[ident] = NShort[j] + str(i+1) + "}"
-                    ident += 1
-        method = "DC"
-        Periods = np.divide(1,Frequency)
-        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
-        def funcSurf96(model):
-            import numpy as np
-            from pysurf96 import surf96
-            Vp = np.asarray([0.300, 0.750, 1.5])
-            rho = np.asarray([1.5, 1.9, 2.2])
-            nLayer = 3
-            Frequency = np.logspace(0.1,1.5,50)
-            Periods = np.divide(1,Frequency)
-            return surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
 
-        forwardFun = funcSurf96 #lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=Vp,vs=model[nLayer-1:2*nLayer-1],rho=rho,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
-        forward = {"Fun":forwardFun,"Axis":Periods}
-        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
-        # Initialize the model parameters for BEL1D
+        TrueModel, Periods, Dataset, NoiseEstimate, ModelSynthetic = buildMODELSET()
         nbModelsBase = 1000
-        ModelSynthetic = BEL1D.MODELSET(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
 
         #from wrapt_timeout_decorator import timeout
         timeMax = 60*60 #Number of seconds before timeout
@@ -749,29 +694,16 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                     for idxReject, Rejection in enumerate(valTestRejection):
                         k += 1
                         print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTestN*nbTestM*nbTestR*nbRepeat,nbModelsBase, MixingParam, Rejection))
-                        # thresholdValue = 0.2
-                        # while True:
-                        #     TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
-                        #     try:
-                        #         Dataset = ModelSynthetic.forwardFun["Fun"](TrueModelTest[0,:])
-                        #         VariabilityMax = np.max(np.diff(Dataset))
-                        #         if VariabilityMax > thresholdValue:
-                        #             pass
-                        #         else:
-                        #             NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*Dataset*1000 + np.divide(ErrorModelSynth[1],Frequency),1000))
-                        #             break
-                        #     except:
-                        #         pass
                         TrueModelTest = TrueModel
-                        randVal = 0 #np.random.randn(1) --> To better compare to the results from DREAM
-                        Dataset = DatasetClean + randVal*NoiseEstimate
+                        randVal = 0
+                        Dataset = Dataset + randVal*NoiseEstimate
                         if MixingParam is not None:
                             def MixingFuncTest(iter:int) -> float:
                                 return MixingParam # Always keeping the same proportion of models as the initial prior
                         else:
                             MixingFuncTest = None
                         try:
-                            stats = testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,[True, pool])
+                            stats = testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,ppComp)
                             # Processing of the results:
                             if stats is not None:
                                 nbIter[idxNbModels,idxMixing,idxReject,repeat] = len(stats)
@@ -831,3 +763,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         np.save(os.path.join(directory,'distEnd'),distEnd)
         np.save(os.path.join(directory,'TrueModels'),TrueModels)
         np.save(os.path.join(directory,'randVals'),randVals)
+    #########################################################################################
+    ###                               Closing the parallel pool                           ###
+    #########################################################################################
+    if ParallelComputing:
+        pool.terminate()

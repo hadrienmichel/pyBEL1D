@@ -15,6 +15,51 @@ def round_to_n(x,n=1):
     tmp = [(round(a, -int(mt.floor(mt.log10(abs(a)))) + (n-1)) if a != 0.0 else 0.0) for a in x]
     return tmp
 
+'''
+Defining some functions for figures saving.
+    - multipage: save all openned figures to a pdf file
+    - multiPngs: save all figures in a directory
+'''
+def multipage(filename, figs=None, dpi=300):
+    '''MULTIPAGE is a function that saves multiples figures into
+    one single pdf file.
+
+    Input arguments are:
+        - filename (str): the file to use to save the figures.
+        - figs (list): a list with handles to the figures to save.
+                        This argument is optional. No input is 
+                        interpretted as saving all figures.
+        - dpi (int): UNUSED
+    '''
+    from matplotlib.backends.backend_pdf import PdfPages
+    import matplotlib.pyplot as plt
+    pp = PdfPages(filename)
+    if figs is None:
+        figs = [plt.figure(n) for n in plt.get_fignums()]
+    for fig in figs:
+        fig.savefig(pp, format='pdf')
+    pp.close()
+
+def multiPngs(folder, figs=None, dpi=300):
+    '''MULTIPNGS is a function that saves multiples figures into
+    one single pdf file.
+
+    Input arguments are:
+        - folder (str): the folder to use to save the figures.
+        - figs (list): a list with handles to the figures to save.
+                        This argument is optional. No input is 
+                        interpretted as saving all figures.
+        - dpi (int): UNUSED
+    '''
+    import matplotlib.pyplot as plt
+    from os.path import join
+    if figs is None:
+        figs = [plt.figure(n) for n in plt.get_fignums()]
+    i = 1
+    for fig in figs:
+        fig.savefig(join(folder,'Figure{}.png'.format(i)),dpi=dpi, format='png')
+        i += 1
+
 def Sampling(prior:list,conditions=None,nbModels:int=1000):
     '''SAMPLING is a function that samples models from a gievn prior model space.
 
