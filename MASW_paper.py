@@ -166,7 +166,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         TrueModel, Periods, Dataset, NoiseEstimate, ModelSynthetic = buildMODELSET()
         nbModelsBase = 1000
         def MixingFunc(iter:int) -> float:
-            return 1# Always keeping the same proportion of models as the initial prior
+            return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
         if stats:
             Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                            nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,
@@ -243,6 +243,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ax.set_title('Last iteration')
                 pyplot.show(block=False)
 
+            if True: # Compare to DREAM?
                 # Compare the results to McMC results:
                 McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
                 # We consider a burn-in period of 75%:

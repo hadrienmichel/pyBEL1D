@@ -53,7 +53,7 @@ forward model MUST be a callable function DIRECTLY, not a class method.
 def ForwardParallelFun(Model, function, nbVal):
     '''This function enables the use of any function to be parralelized.
 
-    ATTENTION: The function MUST be pickable by dill.
+    WARNING: The function MUST be pickable by dill.
 
     Inputs: - Model (np.ndarray): the model for which the forward must be run
             - function (lambda function): the function that, when given a model,
