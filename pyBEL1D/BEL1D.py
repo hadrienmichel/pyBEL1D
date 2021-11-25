@@ -33,6 +33,7 @@ from functools import partial               # For building parallelizable functi
 import time                                 # For CPU time measurements
 from numpy import random                    # For random sampling
 from typing import Callable                 # For typing of functions in calls
+from copy import deepcopy                   # For copying dataframes without links
 
 # Forward models:
 from pygimli.physics.sNMR import MRS, MRS1dBlockQTModelling # sNMR (from pyGIMLI: https://www.pygimli.org/)
@@ -116,12 +117,17 @@ class MODELSET:
                 - "NamesGlobalS" (list): Short names of the global parameters (not layered)
                 - "DataUnits" (string): Units for the dataset,
                 - "DataName" (string): Name of the Y-axis of the dataset (result from the 
-                                        forward model)
+                                       forward model)
                 - "DataAxis" (string): Name of the X-axis of the dataset
         - nbLayer (int): the number of layers for the model (None if not layered)
+        - logTransform ([bool, bool]): Applying a log transform to the models parameters 
+                                       (first value) and/or the datasets (second value).
+                                       The first boolean can also be a list of booleans 
+                                       with the length of the prior which will mean that
+                                       the log transform can be applied parameter by parameter.
     '''
 
-    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None):
+    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None, logTransform=[False, False]):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
             self.prior = []
             self.method = []
@@ -129,6 +135,7 @@ class MODELSET:
             self.paramNames = []
             self.nbLayer = nbLayer # If None -> Model with parameters and no layers (not geophy?)
             self.cond = cond
+            self.logTransform = logTransform
         else:
             self.prior = prior
             self.method = method
@@ -136,6 +143,7 @@ class MODELSET:
             self.cond = cond
             self.paramNames = paramNames
             self.nbLayer = nbLayer
+            self.logTransform = logTransform
     
     @classmethod
     def SNMR(cls,prior=None,Kernel=None,Timing=None):
@@ -201,7 +209,7 @@ class MODELSET:
         forwardFun = lambda model: ForwardSNMR(model, nLayer, KFile.K, KFile.z, Timing)
         forward = {"Fun":forwardFun,"Axis":Timing}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
-        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
 
     @classmethod
     def DC(cls,prior=None,Frequency=None):
@@ -271,7 +279,7 @@ class MODELSET:
         RatioMin = [0.2]*nLayer
         RatioMax = [0.45]*nLayer
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
-        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer)
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
 
 class PREBEL:
     """Object that is used to store the PREBEL elements:
@@ -430,31 +438,63 @@ class PREBEL:
         varRepresented = 0.90
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
-            m_h = pca_model.fit_transform(self.MODELS)
+            if type(self.MODPARAM.logTransform[0]) is list:
+                if len(self.MODPARAM.logTransform[0]) != len(self.PRIOR):
+                    raise Exception('The length of the log-transform is not the same as the legth of the prior.')
+                ModelsTransform = deepcopy(self.MODELS)
+                for count, logT in enumerate(self.MODPARAM.logTransform[0]):
+                    if logT:
+                        ModelsTransform[:,count] = np.log(ModelsTransform[:,count])
+                m_h = pca_model.fit_transform(ModelsTransform)
+            elif (type(self.MODPARAM.logTransform[0]) is bool) and self.MODPARAM.logTransform[0]:
+                m_h = pca_model.fit_transform(np.log(self.MODELS))
+            else:
+                m_h = pca_model.fit_transform(self.MODELS)
             n_CompPCA_Mod = m_h.shape[1]
-            # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
             pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
-            d_h = pca_data.fit_transform(self.FORWARD)
+            if self.MODPARAM.logTransform[1]:
+                d_h = pca_data.fit_transform(np.log(self.FORWARD))
+            else:
+                d_h = pca_data.fit_transform(self.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
                     print('The data space can be represented with fewer dimensions ({}) than the models ({})!'.format(n_CompPCA_Data, n_CompPCA_Mod))
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
-                d_h = pca_data.fit_transform(self.FORWARD)
+                if self.MODPARAM.logTransform[1]:
+                    d_h = pca_data.fit_transform(np.log(self.FORWARD))
+                else:
+                    d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
             self.PCA = {'Data':pca_data,'Model':pca_model}
         else:
-            m_h = self.MODELS # - np.mean(self.MODELS,axis=0)
+            if type(self.MODPARAM.logTransform[0]) is list:
+                if len(self.MODPARAM.logTransform[0]) != len(self.PRIOR):
+                    raise Exception('The length of the log-transform is not the same as the legth of the prior.')
+                ModelsTransform = deepcopy(self.MODELS)
+                for count, logT in enumerate(self.MODPARAM.logTransform[0]):
+                    if logT:
+                        ModelsTransform[:,count] = np.log(ModelsTransform[:,count])
+                m_h = ModelsTransform
+            elif (type(self.MODPARAM.logTransform[0]) is bool) and self.MODPARAM.logTransform[0]:
+                m_h = np.log(self.MODELS)
+            else:
+                m_h = self.MODELS
             n_CompPCA_Mod = m_h.shape[1]
-            #n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
             pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
-            d_h = pca_data.fit_transform(self.FORWARD)
+            if self.MODPARAM.logTransform[1]:
+                d_h = pca_data.fit_transform(np.log(self.FORWARD))
+            else:
+                d_h = pca_data.fit_transform(self.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
                     print('The data space can be represented with fewer dimensions ({}) than the models ({})!'.format(n_CompPCA_Data, n_CompPCA_Mod))
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
-                d_h = pca_data.fit_transform(self.FORWARD)
+                if self.MODPARAM.logTransform[1]:
+                    d_h = pca_data.fit_transform(np.log(self.FORWARD))
+                else:
+                    d_h = pca_data.fit_transform(self.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
             self.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
@@ -513,31 +553,63 @@ class PREBEL:
             print('Reducing the dimensionality . . .')
         if reduceModels:
             pca_model = sklearn.decomposition.PCA(n_components=varRepresented) # Keeping 90% of the variance
-            m_h = pca_model.fit_transform(PrebelNew.MODELS)
+            if type(PrebelNew.MODPARAM.logTransform[0]) is list:
+                if len(PrebelNew.MODPARAM.logTransform[0]) != len(PrebelNew.PRIOR):
+                    raise Exception('The length of the log-transform is not the same as the legth of the prior.')
+                ModelsTransform = deepcopy(PrebelNew.MODELS)
+                for count, logT in enumerate(PrebelNew.MODPARAM.logTransform[0]):
+                    if logT:
+                        ModelsTransform[:,count] = np.log(ModelsTransform[:,count])
+                m_h = pca_model.fit_transform(ModelsTransform)
+            elif (type(PrebelNew.MODPARAM.logTransform[0]) is bool) and PrebelNew.MODPARAM.logTransform[0]:
+                m_h = pca_model.fit_transform(np.log(PrebelNew.MODELS))
+            else:
+                m_h = pca_model.fit_transform(PrebelNew.MODELS)
             n_CompPCA_Mod = m_h.shape[1]
-            # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
             pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
-            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            if PrebelNew.MODPARAM.logTransform[1]:
+                d_h = pca_data.fit_transform(np.log(PrebelNew.FORWARD))
+            else:
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
                     print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
-                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                if PrebelNew.MODPARAM.logTransform[1]:
+                    d_h = pca_data.fit_transform(np.log(PrebelNew.FORWARD))
+                else:
+                    d_h = pca_data.fit_transform(PrebelNew.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
             PrebelNew.PCA = {'Data':pca_data,'Model':pca_model}
         else:
-            m_h = PrebelNew.MODELS # - np.mean(self.MODELS,axis=0)
+            if type(PrebelNew.MODPARAM.logTransform[0]) is list:
+                if len(PrebelNew.MODPARAM.logTransform[0]) != len(PrebelNew.PRIOR):
+                    raise Exception('The length of the log-transform is not the same as the legth of the prior.')
+                ModelsTransform = deepcopy(PrebelNew.MODELS)
+                for count, logT in enumerate(PrebelNew.MODPARAM.logTransform[0]):
+                    if logT:
+                        ModelsTransform[:,count] = np.log(ModelsTransform[:,count])
+                m_h = ModelsTransform
+            elif (type(PrebelNew.MODPARAM.logTransform[0]) is bool) and PrebelNew.MODPARAM.logTransform[0]:
+                m_h = np.log(PrebelNew.MODELS)
+            else:
+                m_h = PrebelNew.MODELS
             n_CompPCA_Mod = m_h.shape[1]
-            #n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
             pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
-            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            if PrebelNew.MODPARAM.logTransform[1]:
+                d_h = pca_data.fit_transform(np.log(PrebelNew.FORWARD))
+            else:
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
             n_CompPCA_Data = d_h.shape[1]
             if n_CompPCA_Data < n_CompPCA_Mod:
                 if verbose:
                     print('The data space can be represented with fewer dimensions than the models!')
                 pca_data = sklearn.decomposition.PCA(n_components=n_CompPCA_Mod)# Ensure at least the same number of dimensions
-                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                if PrebelNew.MODPARAM.logTransform[1]:
+                    d_h = pca_data.fit_transform(np.log(PrebelNew.FORWARD))
+                else:
+                    d_h = pca_data.fit_transform(PrebelNew.FORWARD)
                 n_CompPCA_Data = d_h.shape[1]
             PrebelNew.PCA = {'Data':pca_data,'Model':None}
         # 4) CCA:
@@ -549,6 +621,8 @@ class PREBEL:
         # 5-pre) If dataset already exists:
         if Dataset is not None:
             Dataset = np.reshape(Dataset,(1,-1))# Convert for reverse transform
+            if PrebelNew.MODPARAM.logTransform[1]:
+                Dataset = np.log(Dataset)
             d_obs_h = PrebelNew.PCA['Data'].transform(Dataset)
             d_obs_c = PrebelNew.CCA.transform(d_obs_h)
             if NoiseModel is not None:
@@ -567,7 +641,7 @@ class PREBEL:
             print('PREBEL object build!')
         return PrebelNew
     
-    def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=50000, nbChains:int=10, verbose:bool=False):
+    def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=50000, nbChains:int=10, noData:bool=False, verbose:bool=False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
         on the prior model space (PREBEL). 
 
@@ -578,6 +652,7 @@ class PREBEL:
                                priors). The default value is 50000
             - nbChains (int): the number of chains to run. The larger, the better to avoid 
                               remaining in a local optimum. The default value is 10.
+            - noData (bool): Return data (False - default) or not (True).
             - verbose (bool): output progresses messages (True) or not (False - default)
 
         It returns 2 arrays containing the samples models and the associated datasets.
@@ -593,7 +668,10 @@ class PREBEL:
         timeIn = time.time() # For the timer
         nbParam = len(self.MODPARAM.prior)
         accepted = np.zeros((nbChains, nbSamples, nbParam))
-        acceptedData = np.zeros((nbChains, nbSamples, len(Dataset)))
+        if noData:
+            acceptedData = None 
+        else:
+            acceptedData = np.zeros((nbChains, nbSamples, len(Dataset)))
         for j in range(nbChains):
             if verbose:
                 print('Running chain {} out of {}. . .'.format(j, nbChains))
@@ -618,6 +696,8 @@ class PREBEL:
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
                         B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
                         Likelihood = np.prod(np.multiply(A, B))
+                        if Likelihood > 1e300:
+                            Likelihood = 1e300
                     except:
                         rejectedNb += 1
                         continue
@@ -629,7 +709,8 @@ class PREBEL:
                 if ratio > np.random.uniform(0,1):
                     sampleLast = sampleCurr
                     accepted[j,i,:] = sampleCurr[0]
-                    acceptedData[j,i,:] = SynData
+                    if not(noData):
+                        acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
                 else:
@@ -826,6 +907,14 @@ class POSTBEL:
                 samples_Init = samples_PCA 
             else:
                 samples_Init = self.PCA['Model'].inverse_transform(samples_PCA)
+            if type(self.MODPARAM.logTransform[0]) is list:
+                if len(self.MODPARAM.logTransform[0]) != samples_Init.shape[1]:
+                    raise Exception('The length of the log-transform is not the same as the length of the prior.')
+                for count, logT in enumerate(self.MODPARAM.logTransform[0]):
+                    if logT:
+                        samples_Init[:,count] = np.exp(samples_Init[:,count])
+            elif (type(self.MODPARAM.logTransform[0]) is bool) and self.MODPARAM.logTransform[0]:
+                samples_Init = np.exp(samples_Init)
             self.SAMPLES = samples_Init
         else: # They are conditions to respect!
             nbParam = len(self.MODPARAM.prior)
@@ -844,6 +933,14 @@ class POSTBEL:
                     Samples[modelsOK:,:] = samples_PCA 
                 else:
                     Samples[modelsOK:,:] = self.PCA['Model'].inverse_transform(samples_PCA)
+                if type(self.MODPARAM.logTransform[0]) is list:
+                    if len(self.MODPARAM.logTransform[0]) != Samples.shape[1]:
+                        raise Exception('The length of the log-transform is not the same as the length of the prior.')
+                    for count, logT in enumerate(self.MODPARAM.logTransform[0]):
+                        if logT:
+                            Samples[modelsOK:,count] = np.exp(Samples[modelsOK:,count])
+                elif (type(self.MODPARAM.logTransform[0]) is bool) and self.MODPARAM.logTransform[0]:
+                    Samples[modelsOK:,:] = np.exp(Samples[modelsOK:,:]) 
                 keep = np.ones((nbSamples,))
                 for i in range(nbSamples-modelsOK):
                     keep[modelsOK+i] = self.MODPARAM.cond(Samples[modelsOK+i,:])
@@ -915,6 +1012,8 @@ class POSTBEL:
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
                         B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
                         Likelihood = np.prod(np.multiply(A, B))
+                        if Likelihood > 1e300:
+                            Likelihood = 1e300
                     except:
                         rejectedNb += 1
                         continue
@@ -1109,45 +1208,43 @@ class POSTBEL:
             print(f'Rejection sampling on POSTBEL executed in {time.time()-timeIn} seconds.')
         return ModelsAccepted, DataAccepted
 
-    def ShowPost(self, prior:bool=False, TrueModel=None):
+    def ShowPost(self, prior:bool=False, priorOther=None, TrueModel=None):
         '''SHOWPOST shows the posterior parameter distributions (uncorrelated).
 
         The optional arguments are:
             - prior (bool): Show the prior model space (True) or not
                             (False - default).
+            - priorOther (np.array): The initial prior. Optional.
             - TrueModel (np.array): an array containing the benchmark model.
         '''
         nbParam = self.SAMPLES.shape[1]
         nbLayers = self.MODPARAM.nbLayer
         nbParamUnique = int((nbParam+1)/nbLayers)
         fig, axes = pyplot.subplots(nbLayers, nbParamUnique)
-        mask = [True]*nbParam*nbLayers
-        mask[2] = False
-        idX = np.repeat(np.arange(nbParamUnique),nbLayers)
-        idX = idX[mask]
-        idY = np.tile(np.arange(nbLayers),nbParamUnique)
+        mask = [True]*nbParamUnique*nbLayers
+        mask[nbLayers-1] = False
+        idY = np.repeat(np.arange(nbParamUnique),nbLayers)
         idY = idY[mask]
+        idX = np.tile(np.arange(nbLayers),nbParamUnique)
+        idX = idX[mask]
         if (TrueModel is not None) and (len(TrueModel)!=nbParam):
             TrueModel = None
-        # for i in range(nbParam):
-        #     _, ax = pyplot.subplots()
-        #     ax.hist(self.SAMPLES[:,i])
-        #     ax.set_title("Posterior histogram")
-        #     ax.set_xlabel(self.MODPARAM.paramNames["NamesFU"][i])
-        #     if TrueModel is not None:
-        #         ax.plot([TrueModel[i],TrueModel[i]],np.asarray(ax.get_ylim()),'r')
-        #     pyplot.show(block=False)
         for i in range(nbParam):
             ax = axes[idX[i],idY[i]]
             if i != nbParam-1:
                 if prior:
-                    ax.hist(self.MODELS[:,i], density=True, alpha=0.5, label='_Prior')
+                    if priorOther is None:
+                        ax.hist(self.MODELS[:,i], density=True, alpha=0.5, label='_Prior')
+                    else:
+                        ax.hist(priorOther[:,i], density=True, alpha=0.5, label='_Prior')
                 ax.hist(self.SAMPLES[:,i], density=True, alpha=0.5, label='_Posterior')
                 if TrueModel is not None:
                     ax.plot([TrueModel[i], TrueModel[i]], np.asarray(ax.get_ylim()), 'k', label='_True')
             else:
-                if prior:
+                if priorOther is None:
                     ax.hist(self.MODELS[:,i], density=True, alpha=0.5, label='Prior')
+                else:
+                    ax.hist(priorOther[:,i], density=True, alpha=0.5, label='Prior')
                 ax.hist(self.SAMPLES[:,i], density=True, alpha=0.5, label='Posterior')
                 if TrueModel is not None:
                     ax.plot([TrueModel[i], TrueModel[i]], np.asarray(ax.get_ylim()), 'k', label='True')
