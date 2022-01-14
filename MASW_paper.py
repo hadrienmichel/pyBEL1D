@@ -57,7 +57,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     MirandolaCompute = False    # Compute the results for the Mirandola case study?
     DiscussionCompute = False   # Compute the necessary results for the discussion? WARNING: VERY LONG COMPUTATIONS
     verbose = True              # Output all the details about the current progress of the computations
-    stats = True                # Parameter for the computation/retrun of statistics along with the iterations.
+    statsCompute = True                # Parameter for the computation/retun of statistics along with the iterations.
     #########################################################################################
     ###                            Initilizing the parallel pool                          ###
     #########################################################################################
@@ -167,8 +167,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         nbModelsBase = 1000
         def MixingFunc(iter:int) -> float:
             return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
-        if stats:
-            Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
+        if statsCompute:
+            Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                            nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,
                                                            Graphs=Graphs, TrueModel=TrueModel, verbose=verbose)
         else:
@@ -243,21 +243,23 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ax.set_title('Last iteration')
                 pyplot.show(block=False)
 
-            if True: # Compare to DREAM?
-                # Compare the results to McMC results:
-                McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
-                # We consider a burn-in period of 75%:
-                DREAM=McMC[int(len(McMC)*3/4):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
-                # DREAM = np.unique(DREAM,axis=0)
-                print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM: {}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
-                Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True, alpha=[0.02, 0.06]) # They are 3 times more models for BEL1D than DREAM
-                DREAM_Models, DREAM_Data = Postbel.DataPost(Parallelization=ppComp, OtherModels=DREAM)
-                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=DREAM, OtherData=DREAM_Data, OtherRMSE=True)
-                CurrentGraph = pyplot.gcf()
-                CurrentAxes = CurrentGraph.get_axes()[0]
-                CurrentAxes.set_xlim(left=0,right=1)
-                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
-                CurrentGraph.suptitle("DREAM",fontsize=16)
+            # if True: # Compare to DREAM?
+            #     # Compare the results to McMC results:
+            #     McMC = np.load("./Data/DC/SyntheticBenchmark/DREAM_MASW.npy")
+            #     # We consider a burn-in period of 75%:
+            #     DREAM=McMC[int(len(McMC)*3/4):,:5] # The last 2 columns are the likelihood and the log-likelihood, which presents no interest here
+            #     # DREAM = np.unique(DREAM,axis=0)
+            #     print('Number of models in the postrior: \n\t-BEL1D: {}\n\t-DREAM: {}'.format(len(Postbel.SAMPLES[:,1]),len(DREAM[:,1])))
+            #     Postbel.ShowPostCorr(TrueModel=TrueModel, OtherMethod=DREAM, OtherInFront=True, alpha=[0.02, 0.06]) # They are 3 times more models for BEL1D than DREAM
+            #     DREAM_Models, DREAM_Data = Postbel.DataPost(Parallelization=ppComp, OtherModels=DREAM)
+            #     Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=DREAM_Models, OtherData=DREAM_Data, OtherRMSE=True)
+            #     CurrentGraph = pyplot.gcf()
+            #     CurrentAxes = CurrentGraph.get_axes()[0]
+            #     CurrentAxes.set_xlim(left=0,right=1)
+            #     CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+            #     CurrentGraph.suptitle("DREAM",fontsize=16)
+            # else:
+            #     DREAM_Models = None
             
             if True: # Comparison MCMC/rejection?
                 ### For reproductibility - Random seed fixed
@@ -266,15 +268,15 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                     from random import seed
                     seed(0)
                 ### End random seed fixed
-                ## Testing the McMC algorithm after BEL1D with IPR:
+                # Testing the McMC algorithm after BEL1D with IPR:
                 print('Executing MCMC on PREBEL . . .')
                 ## Executing MCMC on the prior:
-                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbChains=20, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 50000 models
+                MCMC_Init, MCMC_Init_Data = PrebelInit.runMCMC(Dataset=Dataset, nbSamples=125000, nbChains=5, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 50000 models
                 ## Extracting the after burn-in models (last 75%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Init.shape[0]):
-                    for j in np.arange(int(MCMC_Init.shape[1]/4*3),MCMC_Init.shape[1]):
+                    for j in np.arange(int(MCMC_Init.shape[1]/4*3),MCMC_Init.shape[1],50):
                         MCMC.append(np.squeeze(MCMC_Init[i,j,:]))
                         MCMC_Data.append(np.squeeze(MCMC_Init_Data[i,j,:]))
                 MCMC_Init = np.asarray(MCMC)
@@ -288,12 +290,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 
                 ## Exectuing MCMC on the posterior:
                 print('Executing MCMC on POSTBEL . . .')
-                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbChains=20, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 10000 models
+                MCMC_Final, MCMC_Final_Data = Postbel.runMCMC(nbSamples=25000,nbChains=5, NoiseModel=NoiseEstimate, verbose=verbose)# 10 independant chains of 10000 models
                 ## Extracting the after burn-in models (last 75%)
                 MCMC = []
                 MCMC_Data = []
                 for i in range(MCMC_Final.shape[0]):
-                    for j in np.arange(int(MCMC_Final.shape[1]/4*3),MCMC_Final.shape[1]):
+                    for j in np.arange(int(MCMC_Final.shape[1]/4*3),MCMC_Final.shape[1],10):
                         MCMC.append(np.squeeze(MCMC_Final[i,j,:]))
                         MCMC_Data.append(np.squeeze(MCMC_Final_Data[i,j,:]))
                 MCMC_Final = np.asarray(MCMC)
@@ -315,6 +317,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentGraph.suptitle("BEL1D + IPR + Rejection",fontsize=16)
 
                 # Adding the graph with correlations: 
+                ratioAlpha = 0.2 / len(ModelsRejection)
+                ## For rejection sampling:
                 nbParam = Postbel.SAMPLES.shape[1]
                 fig = pyplot.figure(figsize=[10,10])# Creates the figure space
                 axs = fig.subplots(nbParam, nbParam)
@@ -325,9 +329,9 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                 axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
                             axs[i,j].hist(PrebelInit.MODELS[:,j], color='gold',density=True)
                             axs[i,j].hist(Postbel.SAMPLES[:,j],color='royalblue',density=True,alpha=0.75) # Plot the histogram for the given variable
-                            axs[i,j].hist(MCMC_Init[:,j],color='darkorange',density=True,alpha=0.75)
-                            axs[i,j].hist(MCMC_Final[:,j],color='limegreen',density=True,alpha=0.75)
-                            axs[i,j].hist(ModelsRejection[:,j],color='peru',density=True,alpha=0.75)
+                            axs[i,j].hist(MCMC_Init[:,j],color='limegreen',density=True,alpha=0.75)
+                            # axs[i,j].hist(MCMC_Final[:,j],color='limegreen',density=True,alpha=0.75)
+                            axs[i,j].hist(ModelsRejection[:,j],color='darkorange',density=True,alpha=0.75)
                             if TrueModel is not None:
                                 axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
                             if nbParam > 8:
@@ -343,7 +347,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
                             axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
                             axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
-                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='peru', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='darkorange', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
                             if TrueModel is not None:
                                 axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                             if nbParam > 8:
@@ -358,8 +362,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                 else:
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
                             axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
-                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='darkorange', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
-                            axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='limegreen', marker = '.', linestyle='None', alpha=ratioAlpha*len(MCMC_Init)/2, markeredgecolor='none')
+                            # axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
                             if TrueModel is not None:
                                 axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                             if nbParam > 8:
@@ -385,15 +389,100 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 import matplotlib.patches as mpatches
                 patch0 = mpatches.Patch(facecolor='red', edgecolor='#000000')
                 patch1 = mpatches.Patch(facecolor='royalblue', edgecolor='#000000') #this will create a red bar with black borders, you can leave out edgecolor if you do not want the borders
-                patch2 = mpatches.Patch(facecolor='darkorange', edgecolor='#000000')
-                patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
-                patch4 = mpatches.Patch(facecolor='peru', edgecolor='#000000')
+                patch2 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
+                # patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
+                patch4 = mpatches.Patch(facecolor='darkorange', edgecolor='#000000')
                 patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
-                fig.legend(handles=[patch0, patch5, patch1, patch2, patch3, patch4],
-                           labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + McMC", "BEL1D + IPR + Rejection"], 
+                fig.legend(handles=[patch0, patch5, patch1, patch2, patch4],
+                           labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + Rejection"], 
                            loc="upper center", ncol=6)
                 for ax in axs.flat:
                     ax.label_outer()
+                # pyplot.suptitle('Effect of Rejection sampling')
+                pyplot.tight_layout(rect=(0,0,1,0.975))
+                pyplot.show(block=False)
+
+                # For MCMC:
+                nbParam = Postbel.SAMPLES.shape[1]
+                fig = pyplot.figure(figsize=[10,10])# Creates the figure space
+                axs = fig.subplots(nbParam, nbParam)
+                for i in range(nbParam):
+                    for j in range(nbParam):
+                        if i == j: # Diagonal
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            axs[i,j].hist(PrebelInit.MODELS[:,j], color='gold',density=True)
+                            axs[i,j].hist(Postbel.SAMPLES[:,j],color='royalblue',density=True,alpha=0.75) # Plot the histogram for the given variable
+                            axs[i,j].hist(MCMC_Init[:,j],color='limegreen',density=True,alpha=0.75)
+                            # axs[i,j].hist(MCMC_Final[:,j],color='limegreen',density=True,alpha=0.75)
+                            axs[i,j].hist(MCMC_Final[:,j],color='darkorange',density=True,alpha=0.75)
+                            if TrueModel is not None:
+                                axs[i,j].plot([TrueModel[i],TrueModel[i]],np.asarray(axs[i,j].get_ylim()),'r')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        elif i > j: # Below the diagonal -> Scatter plot
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            if j != nbParam-1:
+                                if i != nbParam-1:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                                else:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                            axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
+                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='darkorange', marker = '.', linestyle='None', alpha=ratioAlpha*len(MCMC_Final)/2, markeredgecolor='none')
+                            if TrueModel is not None:
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        elif MCMC_Init is not None:
+                            if i != nbParam-1:
+                                axs[i,j].get_shared_x_axes().join(axs[i,j],axs[-1,j])# Set the xaxis limit
+                            if j != nbParam-1:
+                                if i != 0:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-1])# Set the yaxis limit
+                                else:
+                                    axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
+                            axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
+                            axs[i,j].plot(MCMC_Init[:,j],MCMC_Init[:,i],color='limegreen', marker = '.', linestyle='None', alpha=ratioAlpha*len(MCMC_Init)/2, markeredgecolor='none')
+                            # axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='limegreen', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            if TrueModel is not None:
+                                axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
+                            if nbParam > 8:
+                                axs[i,j].set_xticks([])
+                                axs[i,j].set_yticks([])
+                        else:
+                            axs[i,j].set_visible(False)
+                        if j == 0: # First column of the graph
+                            if ((i==0)and(j==0)) or not(i==j):
+                                axs[i,j].set_ylabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+                        if i == nbParam-1: # Last line of the graph
+                            axs[i,j].set_xlabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][j]))
+                        if j == nbParam-1:
+                            if not(i==j):
+                                axs[i,j].yaxis.set_label_position("right")
+                                axs[i,j].yaxis.tick_right()
+                                axs[i,j].set_ylabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][i]))
+                        if i == 0:
+                            axs[i,j].xaxis.set_label_position("top")
+                            axs[i,j].xaxis.tick_top()
+                            axs[i,j].set_xlabel(r'${}$'.format(Postbel.MODPARAM.paramNames["NamesSU"][j]))
+                # fig.suptitle("Posterior model space visualization")
+                import matplotlib.patches as mpatches
+                patch0 = mpatches.Patch(facecolor='red', edgecolor='#000000')
+                patch1 = mpatches.Patch(facecolor='royalblue', edgecolor='#000000') #this will create a red bar with black borders, you can leave out edgecolor if you do not want the borders
+                patch2 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
+                # patch3 = mpatches.Patch(facecolor='limegreen', edgecolor='#000000')
+                patch4 = mpatches.Patch(facecolor='darkorange', edgecolor='#000000')
+                patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
+                fig.legend(handles=[patch0, patch5, patch1, patch2, patch4],
+                           labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + MCMC"], # red, gold, royalblue, limegreen, darkorange
+                           loc="upper center", ncol=6)
+                for ax in axs.flat:
+                    ax.label_outer()
+                # pyplot.suptitle('Effet of MCMC post-BEL1D')
                 pyplot.tight_layout(rect=(0,0,1,0.975))
                 pyplot.show(block=False)
 
@@ -571,7 +660,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         RMSE_Noise = np.sqrt(np.square(NoiseEstimate).mean(axis=-1))
         print('The RMSE for the clean dataset with 1 times the standard deviation is: {} km/s'.format(RMSE_Noise))
         nbModelsBase = 10000
-        Prebel, Postbel, PrebelInit, stats = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=verbose)
+        Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=verbose)
         Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
         Postbel.ShowPostModels(RMSE=True) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True)

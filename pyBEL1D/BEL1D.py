@@ -641,7 +641,7 @@ class PREBEL:
             print('PREBEL object build!')
         return PrebelNew
     
-    def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=50000, nbChains:int=10, noData:bool=False, verbose:bool=False):
+    def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples:int=100000, nbChains:int=10, noData:bool=False, verbose:bool=False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
         on the prior model space (PREBEL). 
 
@@ -649,7 +649,7 @@ class PREBEL:
             - Dataset (np.array): the field dataset
             - NoiseModel (np.array): the list defining the noise model
             - nbSamples (int): the number of models to sample per chains (larger for larger 
-                               priors). The default value is 50000
+                               priors). The default value is 100000
             - nbChains (int): the number of chains to run. The larger, the better to avoid 
                               remaining in a local optimum. The default value is 10.
             - noData (bool): Return data (False - default) or not (True).
@@ -680,6 +680,7 @@ class PREBEL:
             LikelihoodLast = 1e-50 # First sample most likely accepted
             Covariance = 0.01*np.cov(self.MODELS.T) # Compute the initial covariance from the prior distribution
             passed = False
+            passedVerbose = False
             while i < nbSamples:
                 if i == 0:
                     ## Sampling a random model from the prior distribution
@@ -696,8 +697,8 @@ class PREBEL:
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
                         B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
                         Likelihood = np.prod(np.multiply(A, B))
-                        if Likelihood > 1e300:
-                            Likelihood = 1e300
+                        if Likelihood > 1e305:
+                            Likelihood = 1e305
                     except:
                         rejectedNb += 1
                         continue
@@ -713,18 +714,21 @@ class PREBEL:
                         acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
+                    passedVerbose = False
                 else:
                     rejectedNb += 1
-                if np.mod(i,50) == 0 and not(passed):
+                if np.mod(i,int(nbSamples/100)) == 0 and not(passedVerbose):
                     if verbose:
                         print('{} models sampled (out of {}) in chain {}.'.format(i, nbSamples, j))
+                    passedVerbose = True
                     # LikelihoodLast = 1e-50
+                if  (i < nbSamples/2) and (np.mod(i,50) == 0) and not(passed):
                     AcceptanceRatio = i/(rejectedNb+i)
-                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                    if AcceptanceRatio < 0.80: # 0.75
                         if verbose:
                             print('Acceptance ratio too low, reducing covariance.')
                         Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
-                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                    elif AcceptanceRatio > 0.90: # 0.85
                         if verbose:
                             print('Acceptance ratio too high, increasing covariance.')
                         Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
@@ -958,14 +962,14 @@ class POSTBEL:
                 print('{} models sampled from the posterior model space!'.format(nbSamples))
             self.SAMPLES = Samples
     
-    def runMCMC(self, NoiseModel=None, nbSamples:int=10000, nbChains=10, verbose:bool=False):
+    def runMCMC(self, NoiseModel=None, nbSamples:int=20000, nbChains=10, verbose:bool=False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
         on the last posterior model space (POSTBEL). 
 
         It takes as arguments:
             - NoiseModel (np.array): the list defining the noise model
             - nbSamples (int): the number of models to sample per chains (larger for larger 
-                               priors). The default value is 50000
+                               priors). The default value is 20000
             - nbChains (int): the number of chains to run. The larger, the better to avoid 
                               remaining in a local optimum. The default value is 10.
             - verbose (bool): output progresses messages (True) or not (False - default)
@@ -988,6 +992,7 @@ class POSTBEL:
             LikelihoodLast = 1e-50 # First sample most likely accepted
             Covariance = 0.01*np.cov(self.SAMPLES.T) # Compute the initial covariance from the posterior distribution
             passed = False
+            passedVerbose = False
             while i < nbSamples:
                 if i == 0:
                     ## Sampling a random model from the posterior distribution
@@ -1012,8 +1017,8 @@ class POSTBEL:
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
                         B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
                         Likelihood = np.prod(np.multiply(A, B))
-                        if Likelihood > 1e300:
-                            Likelihood = 1e300
+                        if Likelihood > 1e305:
+                            Likelihood = 1e305
                     except:
                         rejectedNb += 1
                         continue
@@ -1028,17 +1033,20 @@ class POSTBEL:
                     acceptedData[j,i,:] = SynData
                     i += 1
                     passed = False
+                    passedVerbose = False
                 else:
                     rejectedNb += 1
-                if np.mod(i,50) == 0 and not(passed):
+                if np.mod(i,int(nbSamples/100)) == 0 and not(passedVerbose):
                     if verbose:
                         print('{} models sampled (out of {}) in chain {}.'.format(i, nbSamples, j))
+                    passedVerbose = True
+                if (i < nbSamples/2) and (np.mod(i,50) == 0) and not(passed):
                     AcceptanceRatio = i/(rejectedNb+i)
-                    if AcceptanceRatio < 0.75 and i < nbSamples/2:
+                    if AcceptanceRatio < 0.80: # 0.75
                         if verbose:
                             print('Acceptance ratio too low, reducing covariance.')
                         Covariance *= 0.8 # We are reducing the covariance to increase the acceptance rate
-                    elif AcceptanceRatio > 0.85 and i < nbSamples/2:
+                    elif AcceptanceRatio > 0.90: # 0.85
                         if verbose:
                             print('Acceptance ratio too high, increasing covariance.')
                         Covariance *= 1.2 # We are increasing the covariance to decrease the acceptance rate
