@@ -281,6 +281,70 @@ class MODELSET:
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
 
+    @classmethod
+    def DCVs(cls,prior=None,Frequency=None):
+        """DCVs is a class method that generates a MODELSET class object for DC. Contrary
+        to the simple DC MODELSET class method, here, only Vs and depth are taken into account.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space 
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, Vs_1_min, Vs_1_max],
+                               [e_2_min, ...            ..., Vs_2_max],
+                               [:        ...           ...          :],
+                               [e_nLay-1_min, ...  ..., Vs_nLay-1_max],
+                               [0, 0, Vs_nLay_min, ....., Vs_nLay_max]]
+
+                               It has 4 columns and nLay lines, nLay beiing the number of 
+                               layers in the model.
+            
+            - Frequency (array): a numpy array containing the frequencies for the dataset simulation.
+
+            By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in km
+                - S-wave velocity (Vs) in km/sec
+        """
+        # from pysurf96 import surf96
+        if prior is None:
+            prior = np.array([[0.0025, 0.0075, 0.002, 0.1], [0, 0, 0.1, 0.5]])
+        if Frequency is None:
+            Frequency = np.linspace(1,50,50)
+        nLayer, nParam = prior.shape
+        nParam /= 2
+        nParam = int(nParam)
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        Mins = np.zeros(((nLayer*nParam)-1,))
+        Maxs = np.zeros(((nLayer*nParam)-1,))
+        Units = ["\\ [km]", "\\ [km/s]"]
+        NFull = ["Thickness\\ ","s-Wave\\ velocity\\ "]
+        NShort = ["e_{", "Vs_{"]
+        ident = 0
+        for j in range(nParam):
+            for i in range(nLayer):
+                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                    Mins[ident] = prior[i,j*2]
+                    Maxs[ident] = prior[i,j*2+1]
+                    NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                    NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                    NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                    ident += 1
+        method = "DC"
+        Periods = np.divide(1,Frequency)
+        PoissonRatio = 0.3
+        RhoTypical = 2.0
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+        forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model[nLayer-1:2*nLayer-1],2)),vs=model[nLayer-1:2*nLayer-1],rho=np.ones((nLayer,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forward = {"Fun":forwardFun,"Axis":Periods}
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
+
 class PREBEL:
     """Object that is used to store the PREBEL elements:
     
