@@ -11,6 +11,8 @@ from pathos import multiprocessing as mp
 from pathos import pools as pp
 from functools import partial
 
+thresholdKDE = 1e-10
+
 def ParallelKernel(inputs):
     '''Computation of the kernel density estimation simplified for parallel computation.
     Do not use standalone.
@@ -67,6 +69,7 @@ def ParallelKernel(inputs):
                 else:
                     y_idx += 1                    
             x_idx += 1
+        KDE[KDE<thresholdKDE] = 0
         output = [KDE, Xaxis, Yaxis]
         return output
     else:
@@ -97,7 +100,8 @@ def ParallelKernel(inputs):
                 #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
                 y_idx += 1
             else:
-                y_idx += 1                    
+                y_idx += 1
+        KDE[KDE<thresholdKDE] = 0                    
         KDEinit = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
         KDE = np.divide(KDE,np.trapz(KDE,Yaxis))
         CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
@@ -278,6 +282,7 @@ class KDE:
                             else:
                                 y_idx += 1                    
                         x_idx += 1
+                    KDE[KDE<thresholdKDE] = 0
                     self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
                 else:
                     self.Xaxis[i] = np.asarray(XTrue[i])
@@ -307,7 +312,8 @@ class KDE:
                             #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
                             y_idx += 1
                         else:
-                            y_idx += 1                    
+                            y_idx += 1
+                    KDE[KDE<thresholdKDE] = 0                    
                     self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
                     KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
                     CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
@@ -408,7 +414,7 @@ class KDE:
                 print('Noise:',Noise)
             for i in dim:
                 KDE_tmp = np.zeros_like(self.KDE[i][1,:])
-                samples = 100
+                samples = 10000
                 distNoise = stats.norm(loc=Xvals[i],scale=Noise[i])
                 r = distNoise.rvs(size=samples)
                 for j in range(samples):

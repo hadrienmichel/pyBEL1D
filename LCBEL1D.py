@@ -82,19 +82,19 @@ if __name__ == '__main__':
     '''
     We build the model with one model every 10 meters along a 200m profile.
     '''
-    Frequency = np.logspace(np.log10(1.5),np.log10(50),50)
+    Frequency = np.logspace(np.log10(0.1),np.log10(50),60)
     Periods = np.divide(1,Frequency)
-    maxLayers = 0
-    for pos in np.linspace(0,0.200,21):
-        modelNbLayers, modelThick, modelVs = findModel(pos)
-        maxLayers = max(maxLayers,len(modelVs))
-        print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
-        try: 
-            data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
-            print(f'\t-Dataset [km/s]: {data}')
-        except:
-            print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
-    print(f'The maximum number of layers observed is {maxLayers}.')
+    # maxLayers = 0
+    # for pos in np.linspace(0,0.200,21):
+    #     modelNbLayers, modelThick, modelVs = findModel(pos)
+    #     maxLayers = max(maxLayers,len(modelVs))
+    #     print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+    #     try: 
+    #         data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+    #         print(f'\t-Dataset [km/s]: {data}')
+    #     except:
+    #         print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
+    # print(f'The maximum number of layers observed is {maxLayers}.')
 
     '''Defining the prior model space:'''
     # The prior has 6 layers, all with the same prior model space
@@ -134,17 +134,15 @@ if __name__ == '__main__':
         return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
     Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=InitialModel,Dataset=data,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                             nbModelsBase=10000,nbModelsSample=10000,stats=True, Mixing=MixingFunc,
-                                                            Graphs=False, TrueModel=np.hstack((modelThick, modelVs)), verbose=True)
+                                                            Graphs=True, verbose=True) # , TrueModel=np.hstack((modelThick, modelVs))
     
     Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
-    Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)# TrueModel=np.hstack((modelThick, modelVs))
-    Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#TrueModel=np.hstack((modelThick, modelVs)),
+    Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
+    Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
     print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
     
     BEL1D.pyplot.show()
 
     if ParallelComputing:
         pool.terminate()
-
-    
 
