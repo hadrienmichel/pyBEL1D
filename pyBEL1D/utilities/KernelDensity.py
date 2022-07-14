@@ -7,9 +7,12 @@ from scipy.interpolate import interp1d
 from scipy.special import erfcinv
 from matplotlib import path
 from matplotlib import pyplot
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from pathos import multiprocessing as mp 
 from pathos import pools as pp
 from functools import partial
+
+thresholdKDE = 1e-10
 
 def ParallelKernel(inputs):
     '''Computation of the kernel density estimation simplified for parallel computation.
@@ -67,6 +70,7 @@ def ParallelKernel(inputs):
                 else:
                     y_idx += 1                    
             x_idx += 1
+        KDE[KDE<thresholdKDE] = 0
         output = [KDE, Xaxis, Yaxis]
         return output
     else:
@@ -97,7 +101,8 @@ def ParallelKernel(inputs):
                 #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
                 y_idx += 1
             else:
-                y_idx += 1                    
+                y_idx += 1
+        KDE[KDE<thresholdKDE] = 0                    
         KDEinit = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
         KDE = np.divide(KDE,np.trapz(KDE,Yaxis))
         CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
@@ -178,7 +183,7 @@ class KDE:
             else:
                 for i in range(len(XTrue)):
                     dataset = self.datasets[i]
-                    if XTrue[i]+2*NoiseError[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i]-2*NoiseError[i] > np.quantile(dataset[:,0],1-percentileLimit):
+                    if XTrue[i]+3*NoiseError[i] < np.quantile(dataset[:,0],percentileLimit) or XTrue[i]-3*NoiseError[i] > np.quantile(dataset[:,0],1-percentileLimit):
                         raise Exception('The dataset is outside of the distribution in the reduced space for dimension {}. Even with noise taken into account!'.format(i+1))
         if Parallelization[0]:
             FuncPara = partial(ParallelKernel)
@@ -278,6 +283,7 @@ class KDE:
                             else:
                                 y_idx += 1                    
                         x_idx += 1
+                    KDE[KDE<thresholdKDE] = 0
                     self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
                 else:
                     self.Xaxis[i] = np.asarray(XTrue[i])
@@ -307,14 +313,15 @@ class KDE:
                             #     KDE[x_idx,y_idx] += pdf(x,y,dataset[idxImpacts[j],0],dataset[idxImpacts[j],1],band)
                             y_idx += 1
                         else:
-                            y_idx += 1                    
+                            y_idx += 1
+                    KDE[KDE<thresholdKDE] = 0                    
                     self.KDE[i] = KDE #np.divide(KDE,(np.sum(KDE)*band**2))
                     KDE = np.divide(KDE,np.trapz(KDE,self.Yaxis[i]))
                     CDF = np.cumsum(np.divide(KDE,np.sum(KDE)))
                     Dist = [[self.Yaxis[i]], [KDE], [CDF]]
                     self.Dist[i] = Dist
     
-    def ShowKDE(self,dim=None,Xvals=None):
+    def ShowKDE(self,dim=None,Xvals=None, Noise=None):
         '''SHOWKDE is a method that displays the KDE approximated CCA space.
         By default, it shows 1 graph per dimension. Optional arguments are:
             - dim (list): list of the specific dimensions to display
@@ -331,28 +338,50 @@ class KDE:
             Xvals = np.squeeze(Xvals)
             if len(Xvals) < self.nb_dim:
                 raise Exception('Xvals is not compatible with the current datasets')
+        if (Noise is not None):
+            Noise = np.squeeze(Noise)
+            if len(Noise) < self.nb_dim:
+                raise Exception('Noise is not compatible with the current datasets')
         for i in dim:
             # Printing the KDE on a graph
             if (self.KDE[i] is not None):
                 X_KDE, Y_KDE = np.meshgrid(self.Xaxis[i],self.Yaxis[i])
-                _, ax = pyplot.subplots()
-                ax.pcolormesh(X_KDE,Y_KDE,np.transpose(self.KDE[i]))
+                fig, ax = pyplot.subplots()
+                # cmap = pyplot.get_cmap('viridis')
+                # cmap.set_under('white')
+                im = ax.pcolormesh(X_KDE,Y_KDE,np.transpose(self.KDE[i]))#, cmap=cmap, vmin=np.max(self.KDE[i])/100, vmax=np.max(self.KDE[i]))
                 ax.set_title('Dimension {}'.format(str(i+1)))
                 ax.set_xlabel('$D^c_{}$'.format(str(i+1)))
-                ax.set_ylabel('$M^c_{}$'.format(str(i+1)))
+                divider = make_axes_locatable(ax)
+                cax = divider.append_axes('right', size='2%', pad=0.05)
+                cb = fig.colorbar(im, cax=cax, orientation='vertical')
+                cb.set_label('P (/)', fontsize=10)
+                for t in cb.ax.get_yticklabels():
+                    t.set_fontsize(8)
+                    t.set_ha("left")
+                    t.set_rotation(30)
                 if (Xvals is not None):
                     ax.plot([Xvals[i],Xvals[i]],np.asarray(ax.get_ylim()),'r')
+                    ax.yaxis.set_ticklabels([])
                     if (self.Dist[i] is not None):
                         # Add graph on the left with KDE distribution for Xvals
                         pyplot.subplots_adjust(left=0.4)
-                        ax_hist = pyplot.axes([0.1, 0.1, 0.15, 0.8])
+                        ax_hist = divider.append_axes('left', size='15%', pad=0.1) #pyplot.axes([0.15, 0.1, 0.10, 0.8])
                         ax_hist.plot(np.squeeze(self.Dist[i][1]),np.squeeze(self.Dist[i][0]),'k')
                         ax_hist.set_xlabel('P (/)')
                         ax_hist.set_ylabel('$M^c_{}$'.format(str(i+1)))
                         ax_hist.set_ylim(ax.get_ylim())
+                    if Noise is not None:
+                        linespec = [0.25, 0.75, 1, 1, 0.75, 0.25]
+                        for k, mult in enumerate([-3, -2, -1, 1, 2, 3]):
+                            ax.plot([Xvals[i]+mult*Noise[i],Xvals[i]+mult*Noise[i]],np.asarray(ax.get_ylim()),':r', linewidth=linespec[k])
+                else:
+                    ax.set_ylabel('$M^c_{}$'.format(str(i+1)))
+                pyplot.tight_layout()
                 pyplot.show(block=False)
             else:
                 raise Exception('No KDE field at dimension {}'.format(i))
+        
         pyplot.show(block=False)
 
     def GetDist(self,Xvals=[0],dim=None,Noise=None,verbose:bool=False):
@@ -408,7 +437,7 @@ class KDE:
                 print('Noise:',Noise)
             for i in dim:
                 KDE_tmp = np.zeros_like(self.KDE[i][1,:])
-                samples = 100
+                samples = 10000
                 distNoise = stats.norm(loc=Xvals[i],scale=Noise[i])
                 r = distNoise.rvs(size=samples)
                 for j in range(samples):

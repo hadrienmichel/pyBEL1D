@@ -127,7 +127,7 @@ class MODELSET:
                                        the log transform can be applied parameter by parameter.
     '''
 
-    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None, logTransform=[False, False]):
+    def __init__(self, prior=None, cond=None, method=None, forwardFun=None, paramNames=None, nbLayer=None, logTransform=[False, False], thicknessesFixed=None):
         if (prior is None) or (method is None) or (forwardFun is None) or (paramNames is None):
             self.prior = []
             self.method = []
@@ -136,6 +136,7 @@ class MODELSET:
             self.nbLayer = nbLayer # If None -> Model with parameters and no layers (not geophy?)
             self.cond = cond
             self.logTransform = logTransform
+            self.thicknessesFixed = None
         else:
             self.prior = prior
             self.method = method
@@ -144,6 +145,7 @@ class MODELSET:
             self.paramNames = paramNames
             self.nbLayer = nbLayer
             self.logTransform = logTransform
+            self.thicknessesFixed = thicknessesFixed
     
     @classmethod
     def SNMR(cls,prior=None,Kernel=None,Timing=None):
@@ -190,7 +192,7 @@ class MODELSET:
         Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = [" [m]", " [/]", " [s]"]
         NFull = ["Thickness ","Water Content ","Relaxation Time "]
-        NShort = ["e_{", "W_{", "T_{2,"]
+        NShort = ["th_{", "W_{", "T_{2,"]
         ident = 0
         for j in range(nParam):
             for i in range(nLayer):
@@ -254,7 +256,7 @@ class MODELSET:
         Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]", "\\ [T/m^3]"]
         NFull = ["Thickness\\ ","s-Wave\\ velocity\\ ","p-Wave\\ velocity\\ ", "Density\\ "]
-        NShort = ["e_{", "Vs_{", "Vp_{", "\\rho_{"]
+        NShort = ["th_{", "Vs_{", "Vp_{", "\\rho_{"]
         ident = 0
         for j in range(nParam):
             for i in range(nLayer):
@@ -280,6 +282,148 @@ class MODELSET:
         RatioMax = [0.45]*nLayer
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all() and (np.logical_and(np.greater(PoissonRatio(model),RatioMin),np.less(PoissonRatio(model),RatioMax))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
+
+    @classmethod
+    def DCVs(cls,prior=None,Frequency=None):
+        """DCVs is a class method that generates a MODELSET class object for DC. Contrary
+        to the simple DC MODELSET class method, here, only Vs and depth are taken into account.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space 
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, Vs_1_min, Vs_1_max],
+                               [e_2_min, ...            ..., Vs_2_max],
+                               [:        ...           ...          :],
+                               [e_nLay-1_min, ...  ..., Vs_nLay-1_max],
+                               [0, 0, Vs_nLay_min, ....., Vs_nLay_max]]
+
+                               It has 4 columns and nLay lines, nLay beiing the number of 
+                               layers in the model.
+            
+            - Frequency (array): a numpy array containing the frequencies for the dataset simulation.
+
+            By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in km
+                - S-wave velocity (Vs) in km/sec
+        """
+        # from pysurf96 import surf96
+        if prior is None:
+            prior = np.array([[0.0025, 0.0075, 0.002, 0.1], [0, 0, 0.1, 0.5]])
+        if Frequency is None:
+            Frequency = np.linspace(1,50,50)
+        nLayer, nParam = prior.shape
+        nParam /= 2
+        nParam = int(nParam)
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        ListPrior = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesFullUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShort = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        NamesShortUnits = [None] * ((nLayer*nParam)-1)# Half space at bottom
+        Mins = np.zeros(((nLayer*nParam)-1,))
+        Maxs = np.zeros(((nLayer*nParam)-1,))
+        Units = ["\\ [km]", "\\ [km/s]"]
+        NFull = ["Thickness\\ ","s-Wave\\ velocity\\ "]
+        NShort = ["th_{", "Vs_{"]
+        ident = 0
+        for j in range(nParam):
+            for i in range(nLayer):
+                if not((i == nLayer-1) and (j == 0)):# Not the half-space thickness
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                    Mins[ident] = prior[i,j*2]
+                    Maxs[ident] = prior[i,j*2+1]
+                    NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                    NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                    NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                    ident += 1
+        method = "DC"
+        Periods = np.divide(1,Frequency)
+        PoissonRatio = 0.3
+        RhoTypical = 2.0
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+        forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model[nLayer-1:2*nLayer-1],2)),vs=model[nLayer-1:2*nLayer-1],rho=np.ones((nLayer,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forward = {"Fun":forwardFun,"Axis":Periods}
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
+
+    @classmethod
+    def DCVs_logLayers(cls,prior=None,Frequency=None, logUniform=True, maxDepth:float=0.200, minThick=5e-4, maxThick=0.0025, nbLayers:int=25):
+        """DCVs_logLayers is a class method that generates a MODELSET class object for DC. Contrary
+        to the simple DC MODELSET class method, here, only Vs and depth are taken into account.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space 
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, Vs_1_min, Vs_1_max],
+                               [e_2_min, ...            ..., Vs_2_max],
+                               [:        ...           ...          :],
+                               [e_nLay-1_min, ...  ..., Vs_nLay-1_max],
+                               [0, 0, Vs_nLay_min, ....., Vs_nLay_max]]
+
+                               It has 4 columns and nLay lines, nLay beiing the number of 
+                               layers in the model.
+            
+            - Frequency (array): a numpy array containing the frequencies for the dataset simulation.
+
+            By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in km
+                - S-wave velocity (Vs) in km/sec
+        """
+        # from pysurf96 import surf96
+        if prior is None:
+            prior = np.repeat(np.atleast_2d([0.1, 3.0]), nbLayers, axis=0)
+        if Frequency is None:
+            Frequency = np.linspace(1,50,50)
+        nParam = 1
+        ## Linear-Log mixing for depth discretization (inspiered from MRSMatlab):
+        notOK = True
+        linLayers = 0
+        while notOK:
+            depths = np.logspace(np.log10(minThick), np.log10(maxDepth-(linLayers*maxThick)), nbLayers-(linLayers+1))
+            thickness = np.append([minThick], np.diff(depths))
+            if thickness[-1] > maxThick:
+                linLayers += 1
+            else: 
+                notOK = False
+        if linLayers > 0:
+            depths = np.append(depths, np.cumsum(np.ones((linLayers,))*maxThick)+depths[-1])
+            thickness = np.append([minThick], np.diff(depths))
+            
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        ListPrior = [None] * nbLayers# Half space at bottom
+        NamesFullUnits = [None] * nbLayers# Half space at bottom
+        NamesShort = [None] * nbLayers# Half space at bottom
+        NamesShortUnits = [None] * nbLayers# Half space at bottom
+        Mins = np.zeros((nbLayers,))
+        Maxs = np.zeros((nbLayers,))
+        Units = ["\\ [km/s]"]
+        NFull = ["s-Wave\\ velocity\\ "]
+        NShort = ["Vs_{"]
+        ident = 0
+        for j in range(nParam):
+            for i in range(nbLayers):
+                if logUniform:
+                    ListPrior[ident] = stats.loguniform(a=prior[i,j*2],b=prior[i,j*2+1]-prior[i,j*2])
+                else:
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                Mins[ident] = prior[i,j*2]
+                Maxs[ident] = prior[i,j*2+1]
+                NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                ident += 1
+        method = "DC"
+        Periods = np.divide(1,Frequency)
+        PoissonRatio = 0.25
+        RhoTypical = 2.0
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
+        forwardFun = lambda model: surf96(thickness=np.append(thickness, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model,2)),vs=model,rho=np.ones((nbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        forward = {"Fun":forwardFun,"Axis":Periods}
+        cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nbLayers, logTransform=[False, False], thicknessesFixed=thickness)
 
 class PREBEL:
     """Object that is used to store the PREBEL elements:
@@ -512,7 +656,7 @@ class PREBEL:
             pool.terminate()
     
     @classmethod
-    def POSTBEL2PREBEL(cls, PREBEL, POSTBEL, Dataset=None, NoiseModel=None, Parallelization:list=[False,None], reduceModels:bool=False, verbose:bool=False):
+    def POSTBEL2PREBEL(cls, PREBEL, POSTBEL, Dataset=None, NoiseModel=None, nbMaxPrior:int=1000000, Parallelization:list=[False,None], reduceModels:bool=False, verbose:bool=False):
         ''' POSTBEL2PREBEL is a class method that converts a POSTBEL object to a PREBEL one.
 
         It takes as arguments:
@@ -521,6 +665,8 @@ class PREBEL:
         And optional arguments are:
             - Dataset (np.array): the field dataset
             - NoiseModel (list): the list defining the noise model (see dedicated functions)
+            - nbMaxPrior (int=1000000): the maximum number of models that can be selected
+                                        in the built prior
             - Parallelization (list): parallelization instructions
                     - [False, _]: no parallel runs (default)
                     - [True, None]: parallel runs without pool provided
@@ -547,6 +693,12 @@ class PREBEL:
         PrebelNew.MODELS = np.append(PREBEL.MODELS,POSTBEL.SAMPLES,axis=0)
         PrebelNew.FORWARD = np.append(PREBEL.FORWARD,POSTBEL.SAMPLESDATA,axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0) # Get the number of sampled models
+        # Downsampling in case of too many models:
+        if PrebelNew.nbModels > nbMaxPrior:
+            idxKeep = np.random.choice(PrebelNew.nbModels, nbMaxPrior, replace=False)
+            PrebelNew.MODELS = PrebelNew.MODELS[idxKeep,:]
+            PrebelNew.FORWARD = PrebelNew.FORWARD[idxKeep,:]
+            PrebelNew.nbModels = len(idxKeep)
         # 3) PCA on data (and optionally model):
         varRepresented = 0.90
         if verbose:
@@ -961,6 +1113,7 @@ class POSTBEL:
             if verbose:
                 print('{} models sampled from the posterior model space!'.format(nbSamples))
             self.SAMPLES = Samples
+            self.SAMPLESDATA = []
     
     def runMCMC(self, NoiseModel=None, nbSamples:int=20000, nbChains=10, verbose:bool=False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
@@ -1213,7 +1366,7 @@ class POSTBEL:
         ModelsAccepted = self.SAMPLES[Accepted,:]
         DataAccepted = self.SAMPLESDATA[Accepted,:]
         if verbose:
-            print(f'Rejection sampling on POSTBEL executed in {time.time()-timeIn} seconds.')
+            print(f'Rejection sampling ({len(ModelsAccepted)} out of {len(LikelihoodOrder)} kept) on POSTBEL executed in {time.time()-timeIn} seconds.')
         return ModelsAccepted, DataAccepted
 
     def ShowPost(self, prior:bool=False, priorOther=None, TrueModel=None):
@@ -1289,6 +1442,9 @@ class POSTBEL:
             alpha = [alpha, alpha]
         fig = pyplot.figure(figsize=[10,10])# Creates the figure space
         axs = fig.subplots(nbParam, nbParam)
+        namesVar =  "NamesSU"
+        if nbParam > 8:
+            namesVar =  "NamesS"
         for i in range(nbParam):
             for j in range(nbParam):
                 if i == j: # Diagonal
@@ -1348,18 +1504,18 @@ class POSTBEL:
                     axs[i,j].set_visible(False)
                 if j == 0: # First column of the graph
                     if ((i==0)and(j==0)) or not(i==j):
-                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][i]))
+                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames[namesVar][i]))
                 if i == nbParam-1: # Last line of the graph
-                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
+                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames[namesVar][j]))
                 if j == nbParam-1:
                     if not(i==j):
                         axs[i,j].yaxis.set_label_position("right")
                         axs[i,j].yaxis.tick_right()
-                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][i]))
+                        axs[i,j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames[namesVar][i]))
                 if i == 0:
                     axs[i,j].xaxis.set_label_position("top")
                     axs[i,j].xaxis.tick_top()
-                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesSU"][j]))
+                    axs[i,j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames[namesVar][j]))
         # fig.suptitle("Posterior model space visualization")
         for ax in axs.flat:
             ax.label_outer()
@@ -1425,16 +1581,24 @@ class POSTBEL:
             Best = int(Best)
             sortIndex = sortIndex[-Best:]
         if nbLayer is not None:# If the model can be displayed as layers
-            nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
+            if self.MODPARAM.thicknessesFixed is None:
+                nbParamUnique = int(np.ceil(nbParam/nbLayer))-1 # Number of parameters minus the thickness
+            else:
+                nbParamUnique = int(np.ceil(nbParam/nbLayer))
             fig = pyplot.figure(figsize=[4*nbParamUnique,10])
             Param = list()
             if OtherModels is not None:
                 ModelsPlot = OtherModels
             else:
                 ModelsPlot = self.SAMPLES
-            Param.append(np.cumsum(ModelsPlot[:,0:nbLayer-1],axis=1))
-            for i in range(nbParamUnique):
-                Param.append(ModelsPlot[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+            if self.MODPARAM.thicknessesFixed is None:
+                Param.append(np.cumsum(ModelsPlot[:,0:nbLayer-1],axis=1))
+                for i in range(nbParamUnique):
+                    Param.append(ModelsPlot[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+            else:
+                Param.append(np.repeat(np.atleast_2d(np.cumsum(self.MODPARAM.thicknessesFixed)), ModelsPlot.shape[0], axis=0))
+                for i in range(nbParamUnique):
+                    Param.append(ModelsPlot[:,(i)*nbLayer:(i+1)*nbLayer])
             if TrueModel is not None:
                 TrueMod = list()
                 TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
@@ -1444,28 +1608,22 @@ class POSTBEL:
             maxDepth = np.max(Param[0][:,-1])*1.5
             if RMSE:
                 colormap = matplotlib.cm.get_cmap('viridis')
-                axes = fig.subplots(1,nbParamUnique) # One graph per parameter
-                if nbParamUnique > 1:
-                    for j in range(nbParamUnique):
-                        for i in sortIndex:
-                            axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
-                        if TrueModel is not None:
-                            axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
-                        axes[j].invert_yaxis()
-                        axes[j].set_ylim(bottom=maxDepth,top=0.0)
-                        axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
-                        axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
-                else:
-                    j = 0
+                # Set the space for the colorbar below:
+                gridSpec = fig.add_gridspec(9,nbParamUnique) # One graph per parameter
+                axes = []
+                for k in range(nbParamUnique):
+                    currAx = fig.add_subplot(gridSpec[:-1, k])
+                    axes.append(currAx)
+                axesCbar = fig.add_subplot(gridSpec[-1,:])
+                for j in range(nbParamUnique):
                     for i in sortIndex:
-                        axes.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                        axes[j].step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
                     if TrueModel is not None:
-                        axes.step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
-                    axes.invert_yaxis()
-                    axes.set_ylim(bottom=maxDepth,top=0.0)
-                    axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
-                    axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
-                    fig.subplots_adjust(left=0.2)
+                        axes[j].step(np.append(TrueMod[j+1][:], TrueMod[j+1][-1]),np.append(np.append(0, TrueMod[0][:]), maxDepth),where='pre',color='gray')
+                    axes[j].invert_yaxis()
+                    axes[j].set_ylim(bottom=maxDepth,top=0.0)
+                    axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
+                    axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
             else:
                 axes = fig.subplots(1,nbParamUnique) # One graph per parameter
                 if nbParamUnique > 1:
@@ -1477,7 +1635,8 @@ class POSTBEL:
                         axes[j].invert_yaxis()
                         axes[j].set_ylim(bottom=maxDepth,top=0.0)
                         axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
-                        axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
+                        if j < 1 : # the first parameter
+                            axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
                 else:
                     j = 0 # Unique parameter
                     for i in sortIndex:
@@ -1489,13 +1648,13 @@ class POSTBEL:
                     axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
                     axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
                     fig.subplots_adjust(left=0.2)
-        if nbParamUnique > 1:
-            for ax in axes.flat:
-                ax.label_outer()
+        # if nbParamUnique > 1:
+        #     for ax in axes: # .flat:
+        #         ax.label_outer()
         
         if RMSE:
-            fig.subplots_adjust(bottom=0.25)
-            ax_colorbar = fig.add_axes([0.15, 0.10, 0.70, 0.05])
+            # fig.subplots_adjust(bottom=0.25)
+            ax_colorbar = axesCbar # fig.add_axes([0.15, 0.10, 0.70, 0.05])
             nb_inter = 1000
             color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
             cmap_scale = colors.ListedColormap(color_for_scale)
@@ -1513,7 +1672,8 @@ class POSTBEL:
             ax_colorbar.set_xticklabels(labels=round_to_n([stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
 
 
-        fig.suptitle("Posterior model visualization",fontsize=16)
+        # fig.suptitle("Posterior model visualization",fontsize=16)
+        pyplot.tight_layout()
         pyplot.show(block=False)
     
     def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None], OtherData=None):
@@ -1556,7 +1716,11 @@ class POSTBEL:
             Best = int(Best)
             sortIndex = sortIndex[-Best:]# Select then best models
         fig = pyplot.figure()
-        ax = fig.add_subplot(1, 1, 1)
+        if RMSE:
+            gs = fig.add_gridspec(5,1)
+            ax = fig.add_subplot(gs[:,:]) # [:-1,:])
+        else:
+            ax = fig.add_subplot(111)
         if Prior:
             for j in range(self.nbModels):
                 ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
@@ -1575,9 +1739,9 @@ class POSTBEL:
                 ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(PlotData[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
-        if RMSE:
-            fig.subplots_adjust(bottom=0.30)
-            ax_colorbar = fig.add_axes([0.10, 0.15, 0.80, 0.05])
+        if False: # RMSE:
+            # fig.subplots_adjust(bottom=0.30)
+            ax_colorbar = fig.add_subplot(gs[-1,:]) #fig.add_axes([0.10, 0.15, 0.80, 0.05])
             nb_inter = 1000
             color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
             cmap_scale = colors.ListedColormap(color_for_scale)
@@ -1590,6 +1754,7 @@ class POSTBEL:
             nbTicks = 5
             ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
             ax_colorbar.set_xticklabels(labels=round_to_n([stats.scoreatpercentile(RMS_scale,a,limit=(np.min(RMS_scale),np.max(RMS_scale)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=5),rotation=15,ha='center')
+        pyplot.tight_layout()
         pyplot.show(block=False)
 
     def GetStats(self):
@@ -1705,9 +1870,9 @@ def defaultMixing(iter:int) -> float:
     
 def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[False, None],
         nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
-        saveItersFolder:str="IPR_Results", nbIterMax:int=100, Rejection:float=0.0, 
-        Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False, TrueModel=None,
-        verbose:bool=False):
+        saveItersFolder:str="IPR_Results", nbIterMax:int=100, reduceModels:bool=False, Rejection:float=0.0, 
+        Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False, TrueModel=None, 
+        PostbelConvert:POSTBEL=None, verbose:bool=False):
     '''IPR (Iterative prior resampling) is a function that will compute the posterior 
     with iterative prior resampling for a given model defined via a MODELSET class object.
 
@@ -1731,12 +1896,15 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                                   the saveItersFolder directory
         - saveItersFolder (str="IPR_Results"): The directory where the files will be stored
         - nbIterMax (int=100): Maximum number of iterations
+        - reduceModels (bool=False): apply PCA reduction to the models.
         - Rejection (float=0.9): Maximum quantile for the RMSE of the accepted models in the
                                  posterior
         - Mixing (callable): Function that returns the mixing ratio at a given iteration. The 
                              default value is 0.5 whatever the iteration.
         - Graphs (bool=False): Show diagnistic graphs (True) or not (False)
         - TrueModel (np.array): an array containing the benchmark model.
+        - PostbelConvert (POSTBEL - optional): a POSTBEL class object that will be used as a 
+                                               prior generator for the different 
         - verbose (bool): output progresses messages (True) or not (False - default).
     
     It returns possibly 4 elements:
@@ -1757,13 +1925,15 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         print('Initializing the system . . .')
     if nbModelsSample is None:
         nbModelsSample = nbModelsBase
+    if MODEL.method == 'DC':
+        nbModelsBase = int(nbModelsBase*1.2) # To make sure to have enough models after failed modllings.
     if Dataset is None:
         raise Exception('No Dataset provided!')
     if verbose:
         print('Starting iterations . . .')
     start = time.time()
     Prebel = PREBEL(MODPARAM=MODEL, nbModels=nbModelsBase)
-    Prebel.run(Parallelization=Parallelization, verbose=verbose)
+    Prebel.run(Parallelization=Parallelization, reduceModels=reduceModels, verbose=verbose)
     PrebelInit = Prebel
     ModelLastIter = Prebel.MODELS
     statsNotReturn = True
@@ -1786,19 +1956,24 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             print('\n\n\nIteration {} running.\n\n'.format(it))
         # Iterating:
         if Mixing is not None:
-            nbModPrebel = Prebel.nbModels
+            # nbModPrebel = Prebel.nbModels
             MixingUsed = Mixing(it)
-            nbPostAdd = int(MixingUsed*nbModPrebel/(1-Rejection)) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
+            nbPostAdd = int((MixingUsed*nbModelsBase)/(1-Rejection)) #ModPrebel/(1-Rejection)) # We need to sample at least this number of models to be able to add to the prior with mixing satisfied
             nbSamples = max([int(nbModelsSample/(1-Rejection)),nbPostAdd])
+            if Prebel.MODPARAM.method is 'DC':
+                nbSamples = int(nbSamples*1.2) # Additional 20% to reach the number with failed models
         else:
             nbSamples = int(nbModelsSample/(1-Rejection))
+            if Prebel.MODPARAM.method is 'DC':
+                nbSamples = int(nbSamples*1.2) # Additional 20% to reach the number with failed models
             nbPostAdd = nbSamples
         Postbel = POSTBEL(Prebel)
         Postbel.run(Dataset=Dataset, nbSamples=nbSamples, NoiseModel=NoiseEstimate, verbose=verbose)
         end = time.time() # End of the iteration - begining of the preparation for the next iteration (if needed):
         if Graphs:
             if it == 0:
-                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
+                NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate, verbose=verbose)
+                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))), Noise=NoiseToLastPrebel)
         Postbel.DataPost(Parallelization=Parallelization, verbose=verbose)
         # Testing for convergence (5% probability of false positive):
         if len(ModelLastIter) > nSamplesConverge:
@@ -1820,7 +1995,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
             if Graphs:
                 NoiseToLastPrebel = Tools.PropagateNoise(Postbel, NoiseLevel=NoiseEstimate, verbose=verbose)
                 Postbel.KDE.KernelDensity(NoiseError=NoiseToLastPrebel, RemoveOutlier=True, verbose=verbose)
-                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))))
+                Postbel.KDE.ShowKDE(Xvals=Postbel.CCA.transform(Postbel.PCA['Data'].transform(np.reshape(Dataset,(1,-1)))), Noise=NoiseToLastPrebel)
             break
         ModelLastIter = Postbel.SAMPLES
         # If not converged yet --> apply transforms to the sampled set for mixing and rejection
@@ -1851,11 +2026,12 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
                 PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
             elif (nbModelsSample < nbPostAdd) and (PostbelAdd.nbSamples > nbModelsSample):
                 idxKeep = random.sample(range(PostbelAdd.nbSamples), nbModelsSample)
-                PostbelAdd.SAMPLES = PostbelAdd.SAMPLES[idxKeep,:]
-                PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
-                PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
+                # ModelLastIter = PostbelAdd.SAMPLES[idxKeep,:]
+                # PostbelAdd.SAMPLESDATA = PostbelAdd.SAMPLESDATA[idxKeep,:]
+                # PostbelAdd.nbSamples = np.size(PostbelAdd.SAMPLES,axis=0)
+                # # ModelLastIter = Postbel.SAMPLES[idxKeep,:]
         # Preparing next iteration:
-        Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization,verbose=verbose)
+        Prebel = PREBEL.POSTBEL2PREBEL(PREBEL=Prebel,POSTBEL=PostbelAdd,Dataset=Dataset,NoiseModel=NoiseEstimate,Parallelization=Parallelization, reduceModels=reduceModels, verbose=verbose)
     if Graphs:
         # plot the different graphs for the analysis of the results:
         pyplot.figure()
