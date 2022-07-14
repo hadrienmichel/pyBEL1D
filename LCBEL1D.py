@@ -24,15 +24,15 @@ if __name__ == '__main__':
     Therefore, the algorithm should be efficient to transfer information from one profile
     to the other when the fault is not present, but the fault will result in a transition 
     that is not smooth with adjacent models and thus the behaviour is unpredictable.'''
-    dippingAngle = 10  # Dipping angle compared to the surface [degree] (in the anti-trigonometric direction)
+    dippingAngle = 5  # Dipping angle compared to the surface [degree] (in the anti-trigonometric direction)
     hasFault = True     # Define if the model has a fault in it
-    faultCrossing = 0.100 # Position of the crossing between the fault and the surface [m]
+    faultCrossing = 1.200 # Position of the crossing between the fault and the surface [m]
     faultAngle = 10    # Dipping angle of the fault plane compared to the surface [degree] (trigonometric direction)
     faultDisp = -0.030      # Vertical displacement of the fault. If positive, Normal fault, otherwise, Reverse fault
     nbLayers = 5        # Numbers of layers in the model
     layersDepthAt0 = np.asarray([-0.010, 0.020, 0.070, 0.080, 100.000]) # The last layer is a half-space (100000 is not taken into account)
     layersVs = np.asarray([0.500, 0.900, 1.500, 2.000, 2.500])
-    PoissonRatio = 0.3
+    PoissonRatio = 0.25
     RhoTypical = 2.0
     # This set of parameters works for the forward modelling of all the informations!
     # I cannot warant the fact that it will work with any set of parameters!
@@ -100,9 +100,9 @@ if __name__ == '__main__':
     # The prior has 6 layers, all with the same prior model space
     # Thicknesses are between 0.5 m and 100 m
     # Vs are between 200 m/s and 3000 m/s
-    prior = np.repeat(np.asarray([[0.0005, 0.075, 0.2, 3.0]]),6,axis=0)
-    InitialModel = BEL1D.MODELSET.DCVs(prior = prior, Frequency = Frequency)
-    pos = 0.300
+    prior = np.repeat(np.asarray([[0.0005, 0.1, 0.2, 3.0]]),10,axis=0)
+    InitialModel = BEL1D.MODELSET.DCVs_logLayers(Frequency = Frequency, nbLayers=50)
+    pos = 0.1
     modelNbLayers, modelThick, modelVs = findModel(pos)
     print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
     try: 
@@ -133,16 +133,40 @@ if __name__ == '__main__':
     def MixingFunc(iter:int) -> float:
         return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
     Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=InitialModel,Dataset=data,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
-                                                            nbModelsBase=10000,nbModelsSample=10000,stats=True, Mixing=MixingFunc,
-                                                            Graphs=True, verbose=True) # , TrueModel=np.hstack((modelThick, modelVs))
+                                                            nbModelsBase=10000000,nbModelsSample=100000, reduceModels=False, stats=True, Mixing=MixingFunc,
+                                                            Graphs=False, verbose=True, nbIterMax=1) # , TrueModel=np.hstack((modelThick, modelVs))
     
     Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
     Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
-    Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
+    # Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
     print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
     
-    BEL1D.pyplot.show()
+    ####
+    ## Second localization (100 meters further)
+    dataOK = False # To be changed latter
+    while dataOK:
+        pos += 0.025
+        modelNbLayers, modelThick, modelVs = findModel(pos)
+        print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+        try: 
+            data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+            print(f'\t-Dataset [km/s]: {data}')
+        except:
+            dataOK = False
+            print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
+
+        ErrorModelSynth = [0.075, 20]
+        NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*data*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+
+        Prebel = BEL1D.PREBEL.POSTBEL2PREBEL(Prebel, Postbel, Dataset=data, reduceModels=True, Parallelization=ppComp)
+        Postbel = BEL1D.POSTBEL(Prebel)
+        Postbel.run(Dataset=data, nbSamples=Prebel.nbModels, NoiseModel=NoiseEstimate, verbose=True)
+        Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
+        Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
+        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
+        print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+
+    # BEL1D.pyplot.show()
 
     if ParallelComputing:
         pool.terminate()
-

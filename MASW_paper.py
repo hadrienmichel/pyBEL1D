@@ -14,8 +14,15 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     import os                                       # For files structures and read/write operations
     from os import listdir                          # To retreive elements from a folder
     from os.path import isfile, join                # Common files operations
-    from matplotlib import pyplot                   # For graphics on post-processing
+    from matplotlib import pyplot, colors                   # For graphics on post-processing
+    import matplotlib
+    # pyplot.rcParams['font.size'] = 16
+    # pyplot.rcParams['figure.autolayout'] = True
+    # pyplot.rcParams['xtick.labelsize'] = 14
+    # pyplot.rcParams['ytick.labelsize'] = 14
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
     import time                                     # For simple timing measurements
+    from copy import deepcopy
 
     ## Libraries for parallel computing:
     from pathos import multiprocessing as mp        # Multiprocessing utilities (get CPU cores info)
@@ -52,12 +59,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     '''
     Graphs = True               # Obtain all the graphs?
     ParallelComputing = True    # Use parallel computing whenever possible?
-    BenchmarkCompute = True     # Compute the results for the benchmark model?
+    BenchmarkCompute = False     # Compute the results for the benchmark model?
+    McMCRejection = False       # Compare to MCMC and rejection sampling
     TestOtherNbLayers = False   # Testing the benchmark model with more layers than what is really in the model. Only active if BenchmarkCompute is.
-    MirandolaCompute = False    # Compute the results for the Mirandola case study?
+    MirandolaCompute = True    # Compute the results for the Mirandola case study?
     DiscussionCompute = False   # Compute the necessary results for the discussion? WARNING: VERY LONG COMPUTATIONS
     verbose = True              # Output all the details about the current progress of the computations
-    statsCompute = True                # Parameter for the computation/retun of statistics along with the iterations.
+    statsCompute = True         # Parameter for the computation/retun of statistics along with the iterations.
     #########################################################################################
     ###                            Initilizing the parallel pool                          ###
     #########################################################################################
@@ -102,7 +110,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Maxs = np.zeros(((nLayer*nParam)-1,))
         Units = ["\\ [km]", "\\ [km/s]"]
         NFull = ["Thickness\\ ","s-Wave\\ velocity\\ "]
-        NShort = ["e_{", "Vs_{"]
+        NShort = ["th_{", "Vs_{"]
         ident = 0
         for j in range(nParam):
             for i in range(nLayer):
@@ -180,7 +188,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 PostbelInit = BEL1D.POSTBEL(PrebelInit)
                 PostbelInit.run(Dataset=Dataset, nbSamples=nbModelsBase,NoiseModel=NoiseEstimate)
                 PostbelInit.DataPost(Parallelization=ppComp)
-                PostbelInit.ShowPostCorr(TrueModel=TrueModel, OtherMethod=PrebelInit.MODELS, alpha=[0.5, 1])
+                PostbelInit.ShowPostCorr(TrueModel=TrueModel, OtherMethod=PrebelInit.MODELS, alpha=[0.25, 1])
                 PostbelInit.ShowDataset(RMSE=True, Prior=True)
                 CurrentGraph = pyplot.gcf()
                 CurrentGraph = CurrentGraph.get_axes()[0]
@@ -194,7 +202,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 CurrentAxes.set_xlim(left=0,right=1)
                 CurrentAxes.set_ylim(bottom=0.150, top=0.0)
-                CurrentGraph.suptitle("BEL1D",fontsize=16)
+                CurrentAxes.set_title("BEL1D",fontsize=16)
             if True: # Comparison iterations?
                 # Graphs for the iterations:
                 Postbel.ShowDataset(RMSE=True,Prior=True)#,Parallelization=[True,pool])
@@ -205,13 +213,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentGraph.plot(Periods, Dataset+2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset-2*NoiseEstimate,'k:')
                 CurrentGraph.plot(Periods, Dataset,'k')
-                Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
+                Postbel.ShowPostCorr(TrueModel=TrueModel,OtherMethod=PrebelInit.MODELS, alpha=[0.25, 1])
                 Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)#,Parallelization=[True, pool])
                 CurrentGraph = pyplot.gcf()
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 CurrentAxes.set_xlim(left=0,right=1)
                 CurrentAxes.set_ylim(bottom=0.150, top=0.0)
-                CurrentGraph.suptitle("BEL1D + IPR",fontsize=16)
+                CurrentAxes.set_title("BEL1D + IPR",fontsize=16)
                 # Graph for the CCA space parameters loads
                 _, ax = pyplot.subplots()
                 B = PrebelInit.CCA.y_loadings_
@@ -261,7 +269,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             # else:
             #     DREAM_Models = None
             
-            if True: # Comparison MCMC/rejection?
+            if McMCRejection: # Comparison MCMC/rejection?
                 ### For reproductibility - Random seed fixed
                 if not(RandomSeed):
                     np.random.seed(0) # For reproductibilty
@@ -286,7 +294,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 CurrentAxes.set_xlim(left=0,right=1)
                 CurrentAxes.set_ylim(bottom=0.100, top=0.0)
-                CurrentGraph.suptitle("BEL1D + IPR + Rejection",fontsize=16)
+                CurrentAxes.set_title("McMC",fontsize=16)
                 
                 ## Exectuing MCMC on the posterior:
                 print('Executing MCMC on POSTBEL . . .')
@@ -305,16 +313,18 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 CurrentAxes.set_xlim(left=0,right=1)
                 CurrentAxes.set_ylim(bottom=0.100, top=0.0)
-                CurrentGraph.suptitle("BEL1D + IPR + McMC",fontsize=16)
+                CurrentAxes.set_title("BEL1D + IPR + McMC",fontsize=16)
                 
                 print('Executing rejection on the BEL1D models . . .')
-                ModelsRejection, DataRejection = Postbel.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=verbose)
+                PostbelRejection = deepcopy(Postbel)
+                PostbelRejection.run(Dataset=Dataset, nbSamples=15000, NoiseModel=NoiseEstimate, verbose=verbose)
+                ModelsRejection, DataRejection = PostbelRejection.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=verbose)
                 Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True, OtherModels=ModelsRejection, OtherData=DataRejection) #, NoiseModel=NoiseEstimate)
                 CurrentGraph = pyplot.gcf()
                 CurrentAxes = CurrentGraph.get_axes()[0]
                 CurrentAxes.set_xlim(left=0,right=1)
                 CurrentAxes.set_ylim(bottom=0.100, top=0.0)
-                CurrentGraph.suptitle("BEL1D + IPR + Rejection",fontsize=16)
+                CurrentAxes.set_title("BEL1D + IPR + Rejection",fontsize=16)
 
                 # Adding the graph with correlations: 
                 ratioAlpha = 0.2 / len(ModelsRejection)
@@ -346,8 +356,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                 else:
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
                             axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
-                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
-                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='darkorange', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.5, markeredgecolor='none')
+                            axs[i,j].plot(ModelsRejection[:,j],ModelsRejection[:,i],color='darkorange', marker = '.', linestyle='None', alpha=0.6, markeredgecolor='none')
                             if TrueModel is not None:
                                 axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
                             if nbParam > 8:
@@ -395,11 +405,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
                 fig.legend(handles=[patch0, patch5, patch1, patch2, patch4],
                            labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + Rejection"], 
-                           loc="upper center", ncol=6)
+                           loc="upper center", ncol=3)
                 for ax in axs.flat:
                     ax.label_outer()
                 # pyplot.suptitle('Effect of Rejection sampling')
-                pyplot.tight_layout(rect=(0,0,1,0.975))
+                pyplot.tight_layout(rect=(0,0,1,0.9))
                 pyplot.show(block=False)
 
                 # For MCMC:
@@ -430,7 +440,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                 else:
                                     axs[i,j].get_shared_y_axes().join(axs[i,j],axs[i,-2])# Set the yaxis limit
                             axs[i,j].plot(PrebelInit.MODELS[:,j], PrebelInit.MODELS[:,i], color='gold',marker= '.', linestyle='None', markeredgecolor='none')
-                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=0.2, markeredgecolor='none')
+                            axs[i,j].plot(Postbel.SAMPLES[:,j],Postbel.SAMPLES[:,i],color = 'royalblue', marker = '.', linestyle='None', alpha=5, markeredgecolor='none')
                             axs[i,j].plot(MCMC_Final[:,j],MCMC_Final[:,i],color='darkorange', marker = '.', linestyle='None', alpha=ratioAlpha*len(MCMC_Final)/2, markeredgecolor='none')
                             if TrueModel is not None:
                                 axs[i,j].plot(TrueModel[j],TrueModel[i],'or')
@@ -479,11 +489,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 patch5 = mpatches.Patch(facecolor='gold', edgecolor='#000000')
                 fig.legend(handles=[patch0, patch5, patch1, patch2, patch4],
                            labels=["Benchmark", "Prior", "BEL1D + IPR", "McMC", "BEL1D + IPR + MCMC"], # red, gold, royalblue, limegreen, darkorange
-                           loc="upper center", ncol=6)
+                           loc="upper center", ncol=3)
                 for ax in axs.flat:
                     ax.label_outer()
                 # pyplot.suptitle('Effet of MCMC post-BEL1D')
-                pyplot.tight_layout(rect=(0,0,1,0.975))
+                pyplot.tight_layout(rect=(0,0,1,0.9))
                 pyplot.show(block=False)
 
             # Stop execution to display the graphs:
@@ -501,16 +511,16 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 seed(0)
             ### End random seed fixed
             Frequency = np.logspace(0.1,1.5,50)
-            Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)
-            CurrentGraph = pyplot.gcf()
-            CurrentAxes = CurrentGraph.get_axes()[0]
+            # Postbel.ShowPostModels(TrueModel=TrueModel,RMSE=True) #, NoiseModel=NoiseEstimate)
+            # CurrentGraph = pyplot.gcf()
+            # CurrentAxes = CurrentGraph.get_axes()[0]
             nbLayer = 3
             TrueMod = list()
             TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
             TrueMod.append(TrueModel[nbLayer-1:2*nbLayer-1])
-            CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])   
-            CurrentAxes.set_xlim(left=0,right=1)
-            CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+            # CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])   
+            # CurrentAxes.set_xlim(left=0,right=1)
+            # CurrentAxes.set_ylim(bottom=0.100, top=0.0)
             from scipy import stats
             prior4 = np.array([[0.0005, 0.015, 0.1, 0.18],[0.0005, 0.015, 0.1, 0.18],[0.01, 0.1, 0.25, 0.45],[0.0, 0.0, 0.5, 0.9]])
             def funcSurf96_4(model):
@@ -559,21 +569,23 @@ if __name__=="__main__": # To prevent recomputation when in parallel
             def MixingFunc(iter:int) -> float:
                 return 1# Always keeping the same proportion of models as the initial prior
 
+            PostbelFinals = []
+            PostbelFinals.append(Postbel) # Add the model with 3 layers first
             for nLayer in np.arange(4,7+1):
                 if nLayer == 4:
-                    nbModelsBase = 2000
+                    nbModelsBase = 2500
                     prior = prior4
                     forwardFun = funcSurf96_4
                 elif nLayer == 5:
-                    nbModelsBase = 4000
+                    nbModelsBase = 5000
                     prior = prior5
                     forwardFun = funcSurf96_5
                 elif nLayer == 6:
-                    nbModelsBase = 8000
+                    nbModelsBase = 10000
                     prior = prior6
                     forwardFun = funcSurf96_6
                 else:
-                    nbModelsBase = 16000
+                    nbModelsBase = 20000
                     prior = prior7
                     forwardFun = funcSurf96_7
                 nParam = 2 # e and Vs
@@ -616,13 +628,64 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                                                         nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=False, Mixing=MixingFunc,Graphs=False, verbose=verbose)
                 timeOut = time.time()
                 print(f'Run for {nLayer} layers done in {timeOut-timeIn} seconds')
-                Postbel.ShowPostModels(TrueModel=TrueModel, RMSE=True) #, NoiseModel=NoiseEstimate)
-                CurrentGraph = pyplot.gcf()
-                CurrentAxes = CurrentGraph.get_axes()[0]
-                nbLayer = 3
-                CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])
-                CurrentAxes.set_xlim(left=0,right=1)
-                CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                # Postbel.ShowPostModels(RMSE=True)
+                # CurrentGraph = pyplot.gcf()
+                # CurrentAxes = CurrentGraph.get_axes()[0]
+                # nbLayer = 3
+                # CurrentAxes.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])
+                # CurrentAxes.set_xlim(left=0,right=1)
+                # CurrentAxes.set_ylim(bottom=0.100, top=0.0)
+                PostbelFinals.append(Postbel)
+            
+            #### Creating a figure with the results for the multiple layers test:
+            fig, ax = pyplot.subplots(1,5,figsize=[20, 10])
+            nbLayers = np.arange(3,7+1)
+            for k in range(len(nbLayers)):
+                nbLayer = nbLayers[k]
+                # plot the model with RMSE colorbar:
+                # Create the axes:
+                currAx = ax[k]
+                divider = make_axes_locatable(currAx)
+                ax_colorbar = divider.append_axes('bottom', size='10%', pad=1)
+                # Compute the RMSE:
+                trueData = PostbelFinals[k].DATA['True']
+                RMS = np.sqrt(np.square(np.subtract(trueData,PostbelFinals[k].SAMPLESDATA)).mean(axis=-1))
+                quantiles = np.divide([stats.percentileofscore(RMS,a,'strict') for a in RMS],100)
+                sortIndex = np.argsort(RMS)
+                sortIndex = np.flip(sortIndex)
+                # Plot the graph:
+                Param = []
+                Param.append(np.cumsum(PostbelFinals[k].SAMPLES[:,0:nbLayer-1],axis=1))
+                for j in range(1):
+                    Param.append(PostbelFinals[k].SAMPLES[:,(j+1)*nbLayer-1:(j+2)*nbLayer-1])
+                colormap = matplotlib.cm.get_cmap('viridis')
+                maxDepth = 0.100
+                j=0
+                for i in sortIndex:
+                    currAx.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+                currAx.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])   
+                
+                currAx.grid()
+                currAx.invert_yaxis()
+                currAx.set_ylim(bottom=maxDepth, top = 0.0)
+                currAx.set_xlabel(r'${V_s [km/s]}$')
+                if k < 1: # Only ylabel for the first graph
+                    currAx.set_ylabel('Depth [km]')
+                currAx.set_title(f'{nbLayer}-layers model')
+                # Add the colorbar
+                nb_inter = 1000
+                color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
+                cmap_scale = colors.ListedColormap(color_for_scale)
+                scale = [stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+                norm = colors.BoundaryNorm(scale,len(color_for_scale))
+                data = np.atleast_2d(np.linspace(np.min(RMS),np.max(RMS),nb_inter,endpoint=True))
+                ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
+                ax_colorbar.set_xlabel('RMSE [km/s]',fontsize=18)
+                ax_colorbar.yaxis.set_visible(False)
+                nbTicks = 5
+                ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
+                ax_colorbar.set_xticklabels(labels=Tools.round_to_n([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
+            pyplot.tight_layout()
             pyplot.show()
     #########################################################################################
     ###                                 Mirandola test case                               ###
@@ -662,7 +725,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         nbModelsBase = 10000
         Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=ModelSetMIR,Dataset=DatasetMIR,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,stats=True, Mixing=MixingFunc,Graphs=False, verbose=verbose)
         Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1])
-        Postbel.ShowPostModels(RMSE=True) #, NoiseModel=NoiseEstimate)
+        # Postbel.ShowPostModels(RMSE=True) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True)
         fig = pyplot.gcf()
         ax = fig.axes[0]
@@ -679,10 +742,9 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
         ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
         
-
         ## Running the rejection sampling:
         Rejection, RejectionData = Postbel.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
-        Postbel.ShowPostModels(RMSE=True, OtherModels=Rejection, OtherData=RejectionData) #, NoiseModel=NoiseEstimate)
+        # Postbel.ShowPostModels(RMSE=True, OtherModels=Rejection, OtherData=RejectionData) #, NoiseModel=NoiseEstimate)
         Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionData)
         fig = pyplot.gcf()
         ax = fig.axes[0]
@@ -701,8 +763,30 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
         Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1], OtherModels=Rejection)
 
+        # What if rejection after one iteration?
+        PostbelInit = BEL1D.POSTBEL(PrebelInit)
+        PostbelInit.run(Dataset=DatasetMIR, nbSamples=nbModelsBase, NoiseModel=NoiseEstimate)
+        RejectionInit, RejectionDataInit = PostbelInit.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
+        # Postbel.ShowPostModels(RMSE=True, OtherModels=RejectionInit, OtherData=RejectionDataInit) #, NoiseModel=NoiseEstimate)
+        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionDataInit)
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
+
         fig, ax = pyplot.subplots()
         ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior', alpha=0.5)
+        ax.hist(np.sum(RejectionInit[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+Rejection)', alpha=0.5)
         ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR)', alpha=0.5)
         ax.hist(np.sum(Rejection[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR+Rejection)', alpha=0.5)
         ylim = ax.get_ylim()
@@ -711,6 +795,60 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ax.set_xlabel('Depth to bedrock [m]')
         ax.set_ylabel('Probability estimation [/]')
         ax.legend()
+
+        ### Creating a figure with the results for the multiple layers test:
+        fig = pyplot.figure(figsize=[16,10])
+        models = [[PostbelInit.SAMPLES, PostbelInit.SAMPLESDATA, 'BEL1D'],
+                  [RejectionInit, RejectionDataInit, 'BEL1D + Rejection'],
+                  [Postbel.SAMPLES, Postbel.SAMPLESDATA, 'BEL1D + IPR'],
+                  [Rejection, RejectionData, 'BEL1D + IPR + Rejection']]
+        nbLayer = 3
+        gs = fig.add_gridspec(9, len(models))
+        # Compute the RMS scale:
+        trueData = Postbel.DATA['True']
+        rmsScale = np.sqrt(np.square(np.subtract(trueData,Postbel.SAMPLESDATA)).mean(axis=-1))
+        for k, currModels in enumerate(models):
+            # plot the model with RMSE colorbar:
+            # Create the axes:
+            currAx = fig.add_subplot(gs[:-1, k])
+            # Compute the RMSE:
+            RMS = np.sqrt(np.square(np.subtract(trueData, currModels[1])).mean(axis=-1))
+            quantiles = np.divide([stats.percentileofscore(rmsScale,a,'strict') for a in RMS],100)
+            sortIndex = np.argsort(RMS)
+            sortIndex = np.flip(sortIndex)
+            # Plot the graph:
+            Param = []
+            Param.append(np.cumsum(currModels[0][:,0:nbLayer-1],axis=1))
+            for j in range(1):
+                Param.append(currModels[0][:,(j+1)*nbLayer-1:(j+2)*nbLayer-1])
+            colormap = matplotlib.cm.get_cmap('viridis')
+            maxDepth = 0.250
+            j=0
+            for i in sortIndex:
+                currAx.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
+            currAx.grid()
+            currAx.invert_yaxis()
+            currAx.set_ylim(bottom=maxDepth, top = 0.0)
+            currAx.set_xlim(left=0.0, right=2.5)
+            currAx.set_xlabel(r'${V_s [km/s]}$')
+            if k < 1: # Only ylabel for the first graph
+                currAx.set_ylabel('Depth [km]')
+            currAx.set_title(currModels[2])
+        # Add the colorbar
+        ax_colorbar = fig.add_subplot(gs[-1,:])
+        nb_inter = 1000
+        color_for_scale = colormap(np.linspace(0,1,nb_inter,endpoint=True))
+        cmap_scale = colors.ListedColormap(color_for_scale)
+        scale = [stats.scoreatpercentile(rmsScale,a,limit=(np.min(rmsScale),np.max(rmsScale)),interpolation_method='lower') for a in np.linspace(0,100,nb_inter,endpoint=True)]
+        norm = colors.BoundaryNorm(scale,len(color_for_scale))
+        data = np.atleast_2d(np.linspace(np.min(rmsScale),np.max(rmsScale),nb_inter,endpoint=True))
+        ax_colorbar.imshow(data, aspect='auto',cmap=cmap_scale,norm=norm)
+        ax_colorbar.set_xlabel('RMSE [km/s]',fontsize=18)
+        ax_colorbar.yaxis.set_visible(False)
+        nbTicks = 5
+        ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
+        ax_colorbar.set_xticklabels(labels=Tools.round_to_n([stats.scoreatpercentile(rmsScale,a,limit=(np.min(rmsScale),np.max(rmsScale)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
+        pyplot.tight_layout()
 
         pyplot.show(block=False)
         multiPngs('MirandolaFigs')
@@ -751,7 +889,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         #from wrapt_timeout_decorator import timeout
         timeMax = 60*60 #Number of seconds before timeout
         #@timeout(timeMax)
-        def testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,ParallelParam):
+        def testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,MixingFuncTest,ParallelParam,Rejection = 0):
             from pyBEL1D import BEL1D
             import numpy as np
             try:
@@ -761,76 +899,74 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 stats = None
             return stats
         pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of dimensions
-        nbTestN, nbTestM, nbTestR, nbRepeat = (10, 5, 5, 10)
+        nbTestN, nbTestM, nbRepeat = (10, 10, 10)
         valTestModels = np.logspace(np.log10(100),np.log10(25000),nbTestN,dtype=np.int) # Tests between 100 and 100000 models in the initial prior/sampleing
-        valTestMixing = np.linspace(0.1,2.0,nbTestM-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
+        valTestMixing = np.asarray([0.1, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]) # linspace(0.1,2.0,nbTestM-1) # Tests between 0.1 and 2 for the mixing of prior/posterior
         valTestMixing = np.append(valTestMixing,None)
-        valTestRejection = np.linspace(0,0.9,nbTestR) # Tests between 0 and 0.9 for the probability of rejection (only keeping the best fit)
         # Initialize the lists with the values:
         TrueModelTest = Tools.Sampling(ModelSynthetic.prior,ModelSynthetic.cond,1)
         LenModels = np.shape(TrueModelTest)[1]
         print('\n\nBeginning testings . . . \n\n')
-        nbIter = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
-        cpuTime = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
-        meansEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
-        stdsEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
-        distEnd = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
-        TrueModels = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat, LenModels))
-        randVals = np.empty((nbTestN, nbTestM, nbTestR, nbRepeat))
+        nbIter = np.empty((nbTestN, nbTestM, nbRepeat))
+        cpuTime = np.empty((nbTestN, nbTestM, nbRepeat))
+        meansEnd = np.empty((nbTestN, nbTestM, nbRepeat, LenModels))
+        stdsEnd = np.empty((nbTestN, nbTestM, nbRepeat, LenModels))
+        distEnd = np.empty((nbTestN, nbTestM, nbRepeat))
+        TrueModels = np.empty((nbTestN, nbTestM, nbRepeat, LenModels))
+        randVals = np.empty((nbTestN, nbTestM, nbRepeat))
         k = 0
         for repeat in range(nbRepeat):
             for idxNbModels, nbModelsBase in enumerate(valTestModels):
                 for idxMixing, MixingParam in enumerate(valTestMixing):
-                    for idxReject, Rejection in enumerate(valTestRejection):
-                        k += 1
-                        print('Test {} on {} (valTest: nbModels = {}, Mixing = {}, Rejection = {})'.format(k,nbTestN*nbTestM*nbTestR*nbRepeat,nbModelsBase, MixingParam, Rejection))
-                        TrueModelTest = TrueModel
-                        randVal = 0
-                        Dataset = Dataset + randVal*NoiseEstimate
-                        if MixingParam is not None:
-                            def MixingFuncTest(iter:int) -> float:
-                                return MixingParam # Always keeping the same proportion of models as the initial prior
+                    k += 1
+                    print('Test {} on {} (valTest: nbModels = {}, Mixing = {})'.format(k,nbTestN*nbTestM*nbRepeat,nbModelsBase, MixingParam))
+                    TrueModelTest = TrueModel
+                    randVal = 0
+                    Dataset = Dataset + randVal*NoiseEstimate
+                    if MixingParam is not None:
+                        def MixingFuncTest(iter:int) -> float:
+                            return MixingParam # Always keeping the same proportion of models as the initial prior
+                    else:
+                        MixingFuncTest = None
+                    try:
+                        stats = testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,MixingFuncTest,ppComp)
+                        # Processing of the results:
+                        if stats is not None:
+                            nbIter[idxNbModels,idxMixing,repeat] = len(stats)
+                            cpuTime[idxNbModels,idxMixing,repeat] = stats[-1].timing
+                            meansEnd[idxNbModels,idxMixing,repeat,:] = stats[-1].means
+                            stdsEnd[idxNbModels,idxMixing,repeat,:] = stats[-1].stds
+                            distEnd[idxNbModels,idxMixing,repeat] = stats[-1].distance
+                            TrueModels[idxNbModels,idxMixing,repeat,:] = TrueModelTest # [0,:]
+                            randVals[idxNbModels,idxMixing,repeat] = randVal
+                            print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
                         else:
-                            MixingFuncTest = None
-                        try:
-                            stats = testIPR(ModelSynthetic,Dataset,NoiseEstimate,nbModelsBase,Rejection,MixingFuncTest,ppComp)
-                            # Processing of the results:
-                            if stats is not None:
-                                nbIter[idxNbModels,idxMixing,idxReject,repeat] = len(stats)
-                                cpuTime[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].timing
-                                meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].means
-                                stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stats[-1].stds
-                                distEnd[idxNbModels,idxMixing,idxReject,repeat] = stats[-1].distance
-                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest # [0,:]
-                                randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
-                                print('Finished in {} iterations ({} seconds).'.format(len(stats),stats[-1].timing))
-                            else:
-                                nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                                cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                                stdsNaN = TrueModelTest #[0,:]
-                                stdsNaN[:] = np.nan
-                                meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
-                                stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
-                                distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                                TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest # [0,:]
-                                randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
-                                print('Did not finish! (ERROR)')
-                        except Exception as e:
-                            print(e)
-                            nbIter[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                            cpuTime[idxNbModels,idxMixing,idxReject,repeat] = np.nan
+                            nbIter[idxNbModels,idxMixing,repeat] = np.nan
+                            cpuTime[idxNbModels,idxMixing,repeat] = np.nan
                             stdsNaN = TrueModelTest #[0,:]
                             stdsNaN[:] = np.nan
-                            meansEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
-                            stdsEnd[idxNbModels,idxMixing,idxReject,repeat,:] = stdsNaN
-                            distEnd[idxNbModels,idxMixing,idxReject,repeat] = np.nan
-                            TrueModels[idxNbModels,idxMixing,idxReject,repeat,:] = TrueModelTest #[0,:]
-                            randVals[idxNbModels,idxMixing,idxReject,repeat] = randVal
-                            print('Did not finish! (TIMEOUT after 1 hour)')
+                            meansEnd[idxNbModels,idxMixing,repeat,:] = stdsNaN
+                            stdsEnd[idxNbModels,idxMixing,repeat,:] = stdsNaN
+                            distEnd[idxNbModels,idxMixing,repeat] = np.nan
+                            TrueModels[idxNbModels,idxMixing,repeat,:] = TrueModelTest # [0,:]
+                            randVals[idxNbModels,idxMixing,repeat] = randVal
+                            print('Did not finish! (ERROR)')
+                    except Exception as e:
+                        print(e)
+                        nbIter[idxNbModels,idxMixing,repeat] = np.nan
+                        cpuTime[idxNbModels,idxMixing,repeat] = np.nan
+                        stdsNaN = TrueModelTest #[0,:]
+                        stdsNaN[:] = np.nan
+                        meansEnd[idxNbModels,idxMixing,repeat,:] = stdsNaN
+                        stdsEnd[idxNbModels,idxMixing,repeat,:] = stdsNaN
+                        distEnd[idxNbModels,idxMixing,repeat] = np.nan
+                        TrueModels[idxNbModels,idxMixing,repeat,:] = TrueModelTest #[0,:]
+                        randVals[idxNbModels,idxMixing,repeat] = randVal
+                        print('Did not finish! (TIMEOUT after 1 hour)')
             # Savingf the results after each pass:
             print('\n \n \n \t Pass {} of {} over! \n Moving on . . . \n \n \n'.format(repeat+1, nbRepeat))
             cwd = os.getcwd()
-            directory = os.path.join(cwd,'testingInitModelsNoNoiseAdded/{}'.format(repeat))
+            directory = os.path.join(cwd,'testingOK/{}'.format(repeat))
             if not os.path.exists(directory):
                 os.makedirs(directory)
             np.save(os.path.join(directory,'nbIter'),nbIter)
@@ -843,7 +979,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         # pool.terminate()
         # Final pass saving of the results
         cwd = os.getcwd()
-        directory = os.path.join(cwd,'testingInitModelsNoNoiseAdded/final')
+        directory = os.path.join(cwd,'testingOK/final')
         if not os.path.exists(directory):
             os.makedirs(directory)
         np.save(os.path.join(directory,'nbIter'),nbIter)
