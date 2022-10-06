@@ -178,7 +178,9 @@ class MODELSET:
         """
         if prior is None:
             prior = np.array([[2.5, 7.5, 0.035, 0.10, 0.005, 0.350], [0, 0, 0.10, 0.30, 0.005, 0.350]])
+        if Kernel is None:
             Kernel = "Data/sNMR/KernelTest.mrsk"
+        if Timing is None:
             Timing = np.arange(0.005,0.5,0.001)
         nLayer, nParam = prior.shape
         nParam /= 2
@@ -284,7 +286,7 @@ class MODELSET:
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
 
     @classmethod
-    def DCVs(cls,prior=None,Frequency=None):
+    def DCVs(cls,prior=None,Frequency=None, VpFixed=None, RhoFixed=None):
         """DCVs is a class method that generates a MODELSET class object for DC. Contrary
         to the simple DC MODELSET class method, here, only Vs and depth are taken into account.
 
@@ -339,16 +341,108 @@ class MODELSET:
                     ident += 1
         method = "DC"
         Periods = np.divide(1,Frequency)
-        PoissonRatio = 0.3
+        PoissonRatio = 0.25
         RhoTypical = 2.0
         paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth\\ [km]", "Vs\\ [km/s]"],"DataUnits":"[km/s]","DataName":"Phase\\ velocity\\ [km/s]","DataAxis":"Periods\\ [s]"}
-        forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model[nLayer-1:2*nLayer-1],2)),vs=model[nLayer-1:2*nLayer-1],rho=np.ones((nLayer,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        if (VpFixed is None) and (RhoFixed is None):
+            forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model[nLayer-1:2*nLayer-1],2)),vs=model[nLayer-1:2*nLayer-1],rho=np.ones((nLayer,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        elif (VpFixed is not None) and (RhoFixed is not None):
+            forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=VpFixed,vs=model[nLayer-1:2*nLayer-1],rho=RhoFixed,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        elif VpFixed is not None:
+            forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=VpFixed,vs=model[nLayer-1:2*nLayer-1],rho=np.ones((nLayer,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        elif RhoFixed is not None:
+            forwardFun = lambda model: surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(model[nLayer-1:2*nLayer-1],2)),vs=model[nLayer-1:2*nLayer-1],rho=RhoFixed,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        
         forward = {"Fun":forwardFun,"Axis":Periods}
         cond = lambda model: (np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs))).all()
         return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nLayer, logTransform=[False, False])
 
     @classmethod
-    def DCVs_logLayers(cls,prior=None,Frequency=None, logUniform=True, maxDepth:float=0.200, minThick=5e-4, maxThick=0.0025, nbLayers:int=25):
+    def sNMR_logLayers(cls,prior=None, Kernel=None, Timing=None, logUniform=True, maxDepth:float=150, minThick=0.05, maxThick=5, nbLayers:int=25):
+        """SNMR is a class method that generates a MODELSET class object for sNMR.
+
+        The class method takes as arguments:
+            - prior (ndarray): a 2D numpy array containing the prior model space 
+                               decsription. The array is structured as follow:
+                               [[e_1_min, e_1_max, W_1_min, W_1_max, T_2,1_min, T_2,1_max],
+                               [e_2_min, ...                               ..., T_2,1_max],
+                               [:        ...                               ...          :],
+                               [e_nLay-1_min, ...                     ..., T_2,nLay-1_max],
+                               [0, 0, W_nLay_min, ...                   ..., T_2,nLay_max]]
+
+                               It has 6 columns and nLay lines, nLay beiing the number of 
+                               layers in the model.
+            
+            - Kernel (str): a string containing the path to the matlab generated '*.mrsk'
+                            kernel file.
+            
+            - Timing (array): a numpy array containing the timings for the dataset simulation.
+
+            By default, all inputs are None and this generates the example sNMR case.
+
+            Units for the prior are:
+                - Thickness (e) in m
+                - Water content (w) in m^3/m^3
+                - Decay time (T_2^*) in sec
+
+        """
+        if prior is None:
+            prior = np.repeat(np.atleast_2d([0.025, 0.30, 0.005, 0.400]), nbLayers, axis=0)
+        if Kernel is None:
+            Kernel = "Data/sNMR/KernelTest.mrsk"
+        if Timing is None:
+            Timing = np.arange(0.005,0.5,0.001)
+        nParam = 2
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1, 1, 1/100, 1/100, 1/1000, 1/1000]),nLayer,1))
+        ListPrior = [None] * ((nbLayers*nParam))# Half space at bottom
+        NamesFullUnits = [None] * ((nbLayers*nParam))# Half space at bottom
+        NamesShort = [None] * ((nbLayers*nParam))# Half space at bottom
+        NamesShortUnits = [None] * ((nbLayers*nParam))# Half space at bottom
+        Mins = np.zeros(((nbLayers*nParam),))
+        Maxs = np.zeros(((nbLayers*nParam),))
+        Units = [" [/]", " [s]"]
+        NFull = ["Water Content ","Relaxation Time "]
+        NShort = ["W_{", "T_{2,"]
+        ## Linear-Log mixing for depth discretization (inspiered from MRSMatlab):
+        # notOK = True
+        # linLayers = 0
+        # while notOK:
+        #     depths = np.logspace(np.log10(minThick), np.log10(maxDepth-(linLayers*maxThick)), nbLayers-(linLayers))
+        #     thickness = np.append([minThick], np.diff(depths))
+        #     if thickness[-1] > maxThick:
+        #         linLayers += 1
+        #     else: 
+        #         notOK = False
+        # if linLayers > 0:
+        #     depths = np.append(depths, np.cumsum(np.ones((linLayers,))*maxThick)+depths[-1])
+        #     thickness = np.append([minThick], np.diff(depths))
+        thickness = np.ones((nbLayers,))*maxThick
+        # else:
+        #     raise Exception('Impossible to generate a thickness model with those parameters.')
+        ident = 0
+        for j in range(nParam):
+            for i in range(nbLayers):
+                if logUniform:
+                    ListPrior[ident] = stats.loguniform(a=prior[i,j*2],b=prior[i,j*2+1]-prior[i,j*2])
+                else:
+                    ListPrior[ident] = stats.uniform(loc=prior[i,j*2],scale=prior[i,j*2+1]-prior[i,j*2])
+                Mins[ident] = prior[i,j*2]
+                Maxs[ident] = prior[i,j*2+1]
+                NamesFullUnits[ident] = NFull[j] + str(i+1) + Units[j]
+                NamesShortUnits[ident] = NShort[j] + str(i+1) + "}" + Units[j]
+                NamesShort[ident] = NShort[j] + str(i+1) + "}"
+                ident += 1
+        method = "sNMR"
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]","DataName":"Amplitude [V]","DataAxis":"Time/pulses [/]"}# The representation is automated -> no time displayed since pulses are agregated
+        KFile = MRS()
+        KFile.loadKernel(Kernel)
+        forwardFun = lambda model: ForwardSNMR(np.append(thickness[:-1], model), nbLayers, KFile.K, KFile.z, Timing)
+        forward = {"Fun":forwardFun,"Axis":Timing}
+        cond = lambda model: (np.logical_and(np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs)),1)).all() #np.logical_and(np.max(np.abs(np.diff(model[:nbLayers]))) < 0.05, np.max(np.abs(np.diff(model[nbLayers:]))) < 0.05))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nbLayers, logTransform=[False, False], thicknessesFixed=thickness)
+
+    @classmethod
+    def DCVs_logLayers(cls,prior=None,Frequency=None, logUniform=True, maxDepth:float=0.150, minThick=5e-4, maxThick=0.005, nbLayers:int=50):
         """DCVs_logLayers is a class method that generates a MODELSET class object for DC. Contrary
         to the simple DC MODELSET class method, here, only Vs and depth are taken into account.
 
@@ -391,7 +485,8 @@ class MODELSET:
         if linLayers > 0:
             depths = np.append(depths, np.cumsum(np.ones((linLayers,))*maxThick)+depths[-1])
             thickness = np.append([minThick], np.diff(depths))
-            
+        else:
+            raise Exception('Impossible to generate a thickness model with those parameters.')
         # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
         ListPrior = [None] * nbLayers# Half space at bottom
         NamesFullUnits = [None] * nbLayers# Half space at bottom
@@ -479,7 +574,7 @@ class PREBEL:
         self.CCA = []
         self.KDE = []
 
-    def run(self, Parallelization:list=[False, None], RemoveOutlier:bool=False, reduceModels:bool=False, verbose:bool=False):
+    def run(self, Parallelization:list=[False, None], RemoveOutlier:bool=False, reduceModels:bool=False, verbose:bool=False, PriorSampled=None):
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
@@ -500,11 +595,15 @@ class PREBEL:
         # 1) Sampling (if not done already):
         if verbose:
             print('Sampling the prior . . .')
-        if self.nbModels is None: # Normally, we should never enter this
-            self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS)
-            self.nbModels = 1000
+        if PriorSampled is None:
+            if self.nbModels is None: # Normally, we should never enter this
+                self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS)
+                self.nbModels = 1000
+            else:
+                self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS,self.nbModels)
         else:
-            self.MODELS = Tools.Sampling(self.PRIOR,self.CONDITIONS,self.nbModels)
+            self.MODELS = PriorSampled
+            self.nbModels = PriorSampled.shape[0]
         
         # 2) Running the forward model
         if verbose:
@@ -849,8 +948,8 @@ class PREBEL:
                         A = np.divide(1,np.sqrt(2*np.pi*np.power(FieldError,2)))
                         B = np.exp(-1/2 * np.power(np.divide(DataDiff,FieldError),2))
                         Likelihood = np.prod(np.multiply(A, B))
-                        if Likelihood > 1e305:
-                            Likelihood = 1e305
+                        if Likelihood > 1e307:
+                            Likelihood = 1e307
                     except:
                         rejectedNb += 1
                         continue
@@ -1596,14 +1695,20 @@ class POSTBEL:
                 for i in range(nbParamUnique):
                     Param.append(ModelsPlot[:,(i+1)*nbLayer-1:(i+2)*nbLayer-1])
             else:
-                Param.append(np.repeat(np.atleast_2d(np.cumsum(self.MODPARAM.thicknessesFixed)), ModelsPlot.shape[0], axis=0))
+                Param.append(np.repeat(np.atleast_2d(np.cumsum(self.MODPARAM.thicknessesFixed[:-1])), ModelsPlot.shape[0], axis=0))
                 for i in range(nbParamUnique):
                     Param.append(ModelsPlot[:,(i)*nbLayer:(i+1)*nbLayer])
             if TrueModel is not None:
                 TrueMod = list()
-                TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
+                if self.MODPARAM.thicknessesFixed is None:
+                    TrueMod.append(np.cumsum(TrueModel[0:nbLayer-1]))
+                else:
+                    TrueMod.append(np.cumsum(self.MODPARAM.thicknessesFixed[:-1]))
                 for i in range(nbParamUnique):
-                    TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+                    if self.MODPARAM.thicknessesFixed is None:
+                        TrueMod.append(TrueModel[(i+1)*nbLayer-1:(i+2)*nbLayer-1])
+                    else:
+                        TrueMod.append(TrueModel[(i)*nbLayer:(i+1)*nbLayer])
                 
             maxDepth = np.max(Param[0][:,-1])*1.5
             if RMSE:
@@ -1673,7 +1778,7 @@ class POSTBEL:
 
 
         # fig.suptitle("Posterior model visualization",fontsize=16)
-        pyplot.tight_layout()
+        # pyplot.tight_layout()
         pyplot.show(block=False)
     
     def ShowDataset(self,RMSE:bool=False,Prior:bool=False,Best:int=None,Parallelization=[False, None], OtherData=None):
@@ -1872,7 +1977,7 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         nbModelsBase:int=1000, nbModelsSample:int=None, stats:bool=False, saveIters:bool=False, 
         saveItersFolder:str="IPR_Results", nbIterMax:int=100, reduceModels:bool=False, Rejection:float=0.0, 
         Mixing:Callable[[int], float]=defaultMixing, Graphs:bool=False, TrueModel=None, 
-        PostbelConvert:POSTBEL=None, verbose:bool=False):
+        PostbelConvert:POSTBEL=None, verbose:bool=False, PriorSampled=None):
     '''IPR (Iterative prior resampling) is a function that will compute the posterior 
     with iterative prior resampling for a given model defined via a MODELSET class object.
 
@@ -1933,7 +2038,10 @@ def IPR(MODEL:MODELSET, Dataset=None, NoiseEstimate=None, Parallelization:list=[
         print('Starting iterations . . .')
     start = time.time()
     Prebel = PREBEL(MODPARAM=MODEL, nbModels=nbModelsBase)
-    Prebel.run(Parallelization=Parallelization, reduceModels=reduceModels, verbose=verbose)
+    if PriorSampled is not None:
+        Prebel.run(Parallelization=Parallelization, RemoveOutlier=True, reduceModels=reduceModels, verbose=verbose, PriorSampled=PriorSampled)
+    else:
+        Prebel.run(Parallelization=Parallelization, reduceModels=reduceModels, verbose=verbose)
     PrebelInit = Prebel
     ModelLastIter = Prebel.MODELS
     statsNotReturn = True

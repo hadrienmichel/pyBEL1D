@@ -5,6 +5,10 @@ imaging (BEL1D): application to surface waves" are performed and explained.
 The different graphs that are originating from the python script are also 
 outputted here.
 '''
+from matplotlib.pyplot import figure
+from numpy import arange
+
+
 if __name__=="__main__": # To prevent recomputation when in parallel
     #########################################################################################
     ###           Import the different libraries that are used in the script              ###
@@ -16,10 +20,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     from os.path import isfile, join                # Common files operations
     from matplotlib import pyplot, colors                   # For graphics on post-processing
     import matplotlib
-    # pyplot.rcParams['font.size'] = 16
-    # pyplot.rcParams['figure.autolayout'] = True
-    # pyplot.rcParams['xtick.labelsize'] = 14
-    # pyplot.rcParams['ytick.labelsize'] = 14
+    pyplot.rcParams['font.size'] = 18
+    pyplot.rcParams['figure.autolayout'] = True
+    pyplot.rcParams['xtick.labelsize'] = 16
+    pyplot.rcParams['ytick.labelsize'] = 16
     from mpl_toolkits.axes_grid1 import make_axes_locatable
     import time                                     # For simple timing measurements
     from copy import deepcopy
@@ -57,12 +61,12 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     different graphs might be very cumbersome (matplotlib produces 
     nice figures, but is very slow).
     '''
-    Graphs = True               # Obtain all the graphs?
+    Graphs = False               # Obtain all the graphs?
     ParallelComputing = True    # Use parallel computing whenever possible?
-    BenchmarkCompute = False     # Compute the results for the benchmark model?
+    BenchmarkCompute = True     # Compute the results for the benchmark model?
     McMCRejection = False       # Compare to MCMC and rejection sampling
-    TestOtherNbLayers = False   # Testing the benchmark model with more layers than what is really in the model. Only active if BenchmarkCompute is.
-    MirandolaCompute = True    # Compute the results for the Mirandola case study?
+    TestOtherNbLayers = True    # Testing the benchmark model with more layers than what is really in the model. Only active if BenchmarkCompute is.
+    MirandolaCompute = False    # Compute the results for the Mirandola case study?
     DiscussionCompute = False   # Compute the necessary results for the discussion? WARNING: VERY LONG COMPUTATIONS
     verbose = True              # Output all the details about the current progress of the computations
     statsCompute = True         # Parameter for the computation/retun of statistics along with the iterations.
@@ -664,7 +668,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 for i in sortIndex:
                     currAx.step(np.append(Param[j+1][i,:], Param[j+1][i,-1]),np.append(np.append(0, Param[0][i,:]), maxDepth),where='pre',color=colormap(quantiles[i]))
                 currAx.step(np.append(TrueMod[1][:], TrueMod[1][-1]),np.append(np.append(0, TrueMod[0][:]), 0.150),where='pre',color=[0.5, 0.5, 0.5])   
-                
+                currAx.axhline(0.008, color='r')
+                currAx.axhline(0.05, color='r')
                 currAx.grid()
                 currAx.invert_yaxis()
                 currAx.set_ylim(bottom=maxDepth, top = 0.0)
@@ -686,6 +691,44 @@ if __name__=="__main__": # To prevent recomputation when in parallel
                 ax_colorbar.set_xticks(ticks=np.linspace(0,nb_inter,nbTicks,endpoint=True))
                 ax_colorbar.set_xticklabels(labels=Tools.round_to_n([stats.scoreatpercentile(RMS,a,limit=(np.min(RMS),np.max(RMS)),interpolation_method='lower') for a in np.linspace(0,100,nbTicks,endpoint=True)],n=2),rotation=30,ha='right')
             pyplot.tight_layout()
+            # Histograms at given depths:
+            def VsAtDepthX(model, nbLayers, depth):
+                th = model[:nbLayers-1]
+                d = np.cumsum(th)
+                Vs = model[nbLayers-1:]
+                idx = np.searchsorted(d, depth, side='right')
+                return Vs[idx]
+            k = 0
+            fig, ax = pyplot.subplots(1, 3, figsize=[20, 7])
+            for nbLayers in range(3,8):
+                # 8m:
+                v8Curr = []
+                v50Curr = []
+                dBedCurr = []
+                for model in PostbelFinals[k].SAMPLES:
+                    v8Curr.append(VsAtDepthX(model, nbLayers, 0.008))
+                    v50Curr.append(VsAtDepthX(model, nbLayers, 0.050))
+                    dBedCurr.append(np.sum(model[:nbLayers-1]))
+                ax[0].hist(v8Curr, density=True, bins=50, alpha=0.5, label=f'{nbLayers} layers')
+                ax[1].hist(v50Curr, density=True, bins=50, alpha=0.5, label=f'{nbLayers} layers')
+                ax[2].hist(dBedCurr, density=True, bins=50, alpha=0.5, label=f'{nbLayers} layers')
+                k += 1
+            ax[0].axvline(0.12, color='r', label='Benchmark')
+            ax[1].axvline(0.28, color='r', label='Benchmark')
+            ax[2].axvline(0.06, color='r', label='Benchmark')
+            ax[0].set_ylabel('Probability [/]')
+            ax[1].set_ylabel('Probability [/]')
+            ax[2].set_ylabel('Probability [/]')
+            # ax[0].set_title('8 meters depth')
+            # ax[1].set_title('50 meters depth')
+            ax[0].set_xlabel('S-wave velocity at 8m [km/s]')
+            ax[1].set_xlabel('S-wave velocity at 50m [km/s]')
+            ax[2].set_xlabel('Depth to the last layer [km]')
+            # handles, labels = ax[1].get_legend_handles_labels()
+            ax[0].legend()
+            ax[1].legend()
+            ax[2].legend()
+            pyplot.tight_layout()           
             pyplot.show()
     #########################################################################################
     ###                                 Mirandola test case                               ###

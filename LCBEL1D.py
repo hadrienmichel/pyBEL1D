@@ -7,11 +7,17 @@ We will investigate the impact of the departure point, the direction of the oper
 
 Later, we will apply the same tehchnique to a field dataset (E-Test?)
 '''
+from matplotlib import pyplot
+
+
 if __name__ == '__main__':
     # Importing common libraries:
     import numpy as np
     from pysurf96 import surf96 # For the forward modelling
     from pyBEL1D import BEL1D
+
+    from scipy.stats import pearsonr
+    import pandas as pd
 
     ## Libraries for parallel computing:
     from pathos import multiprocessing as mp        # Multiprocessing utilities (get CPU cores info)
@@ -19,6 +25,7 @@ if __name__ == '__main__':
 
     RandomSeed = False
     ParallelComputing = True
+    runBEL1D = True
     # Description of the synthetic model:
     '''The synthetic model will contain a simple geology with dipping layers and a fault.
     Therefore, the algorithm should be efficient to transfer information from one profile
@@ -34,6 +41,7 @@ if __name__ == '__main__':
     layersVs = np.asarray([0.500, 0.900, 1.500, 2.000, 2.500])
     PoissonRatio = 0.25
     RhoTypical = 2.0
+    ErrorModelSynth = [0.075, 20]
     # This set of parameters works for the forward modelling of all the informations!
     # I cannot warant the fact that it will work with any set of parameters!
 
@@ -82,91 +90,137 @@ if __name__ == '__main__':
     '''
     We build the model with one model every 10 meters along a 200m profile.
     '''
-    Frequency = np.logspace(np.log10(0.1),np.log10(50),60)
+    Frequency = np.logspace(np.log10(1),np.log10(100),60)
     Periods = np.divide(1,Frequency)
-    # maxLayers = 0
-    # for pos in np.linspace(0,0.200,21):
-    #     modelNbLayers, modelThick, modelVs = findModel(pos)
-    #     maxLayers = max(maxLayers,len(modelVs))
-    #     print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
-    #     try: 
-    #         data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
-    #         print(f'\t-Dataset [km/s]: {data}')
-    #     except:
-    #         print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
-    # print(f'The maximum number of layers observed is {maxLayers}.')
-
-    '''Defining the prior model space:'''
-    # The prior has 6 layers, all with the same prior model space
-    # Thicknesses are between 0.5 m and 100 m
-    # Vs are between 200 m/s and 3000 m/s
-    prior = np.repeat(np.asarray([[0.0005, 0.1, 0.2, 3.0]]),10,axis=0)
-    InitialModel = BEL1D.MODELSET.DCVs_logLayers(Frequency = Frequency, nbLayers=50)
-    pos = 0.1
-    modelNbLayers, modelThick, modelVs = findModel(pos)
-    print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
-    try: 
-        data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
-        print(f'\t-Dataset [km/s]: {data}')
-    except:
-        print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
-
-    ErrorModelSynth = [0.075, 20]
-    NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*data*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
-
-
-    ### For reproductibility - Random seed fixed
-    if not(RandomSeed):
-        np.random.seed(0) # For reproductibilty
-        from random import seed
-        seed(0)
-    ### End random seed fixed
-
-    #########################################################################################
-    ###                            Initilizing the parallel pool                          ###
-    #########################################################################################
-    if ParallelComputing:
-        pool = pp.ProcessPool(mp.cpu_count()) # Create the parallel pool with at most the number of dimensions
-        ppComp = [True, pool]
-    else:
-        ppComp = [False, None] # No parallel computing
-    def MixingFunc(iter:int) -> float:
-        return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
-    Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=InitialModel,Dataset=data,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
-                                                            nbModelsBase=10000000,nbModelsSample=100000, reduceModels=False, stats=True, Mixing=MixingFunc,
-                                                            Graphs=False, verbose=True, nbIterMax=1) # , TrueModel=np.hstack((modelThick, modelVs))
-    
-    Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
-    Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
-    # Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
-    print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
-    
-    ####
-    ## Second localization (100 meters further)
-    dataOK = False # To be changed latter
-    while dataOK:
-        pos += 0.025
+    '''Defining the datasets'''
+    Positions = np.arange(0.0, 2.00001, 0.01)
+    Datasets = []
+    Noises = []
+    trueModels = []
+    nbLayers = []
+    for pos in Positions:
         modelNbLayers, modelThick, modelVs = findModel(pos)
+        trueModels.append(np.hstack((modelThick, modelVs)))
+        nbLayers.append(modelNbLayers)
         print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+        data = None
         try: 
             data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
             print(f'\t-Dataset [km/s]: {data}')
         except:
-            dataOK = False
             print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
+        Datasets.append(data)
+        if data is not None:
+            NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*data*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+            Noises.append(NoiseEstimate)
+        else:
+            Noises.append(None)
 
-        ErrorModelSynth = [0.075, 20]
-        NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*data*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
+    data = {
+        'Position': Positions,
+        'nbLayers': nbLayers,
+        'TrueModel': trueModels,
+        'Dataset': Datasets,
+        'Noise': Noises}
+    
+    df = pd.DataFrame(data)
+    
+    correlation = np.ones_like(Positions)
+    fig, ax = pyplot.subplots()
+    i = 0
+    mask = []
+    for data in Datasets:
+        if data is None:
+            correlation[i] = 0
+            mask.append(1)
+        else:
+            mask.append(0)
+            ax.plot(Periods, data)
+            if i > 0:
+                dataPrevious = Datasets[i-1]
+                if dataPrevious is not None:
+                    correlation[i], _ = pearsonr(data, dataPrevious)
+                else:
+                    correlation[i] = 0
+        i += 1
+    ax.set_xlabel('Periods [s]')
+    ax.set_ylabel('Phase velocity [km/s]')
+    
+    fig, ax = pyplot.subplots()
+    ax.plot(Positions, correlation*100)
+    ax.set_xlabel('Distance [km]')
+    ax.set_ylabel('Correlation [%]')
 
-        Prebel = BEL1D.PREBEL.POSTBEL2PREBEL(Prebel, Postbel, Dataset=data, reduceModels=True, Parallelization=ppComp)
-        Postbel = BEL1D.POSTBEL(Prebel)
-        Postbel.run(Dataset=data, nbSamples=Prebel.nbModels, NoiseModel=NoiseEstimate, verbose=True)
+    if sum(mask) == 0:
+        corrMatrix = np.ma.corrcoef(Datasets)
+        X, Y = np.meshgrid(Positions, Positions)
+        fig, ax = pyplot.subplots()
+        im = ax.contourf(X, Y, corrMatrix, vmin=0, vmax=1)
+        ax.set_xlabel('Distance [km]')
+        ax.set_ylabel('Distance [km]')
+        cb = fig.colorbar(im)
+
+    pyplot.show(block=True)
+
+    if runBEL1D:
+        ### For reproductibility - Random seed fixed
+        if not(RandomSeed):
+            np.random.seed(0) # For reproductibilty
+            from random import seed
+            seed(0)
+        ### End random seed fixed
+        '''Defining the prior model space:'''
+        # The prior has 6 layers, all with the same prior model space
+        # Thicknesses are between 0.5 m and 100 m
+        # Vs are between 200 m/s and 3000 m/s
+        prior = np.repeat(np.asarray([[0.0005, 0.1, 0.2, 3.0]]),10,axis=0)
+        InitialModel = BEL1D.MODELSET.DCVs_logLayers(Frequency = Frequency, nbLayers=50)
+
+        #########################################################################################
+        ###                            Initilizing the parallel pool                          ###
+        #########################################################################################
+        if ParallelComputing:
+            pool = pp.ProcessPool(mp.cpu_count()) # Create the parallel pool with at most the number of dimensions
+            ppComp = [True, pool]
+        else:
+            ppComp = [False, None] # No parallel computing
+        def MixingFunc(iter:int) -> float:
+            return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
+        Prebel, Postbel, PrebelInit, statsCompute = BEL1D.IPR(MODEL=InitialModel,Dataset=data,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
+                                                                nbModelsBase=10000000,nbModelsSample=100000, reduceModels=False, stats=True, Mixing=MixingFunc,
+                                                                Graphs=False, verbose=True, nbIterMax=1) # , TrueModel=np.hstack((modelThick, modelVs))
+        
         Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
         Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
-        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
+        # Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
         print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+        
+        ####
+        ## Second localization (100 meters further)
+        dataOK = False # To be changed latter
+        while dataOK:
+            pos += 0.025
+            modelNbLayers, modelThick, modelVs = findModel(pos)
+            print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+            try: 
+                data = surf96(thickness=np.append(modelThick, [0]),vp=np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2)),vs=modelVs,rho=np.ones((modelNbLayers,))*RhoTypical,periods=Periods,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+                print(f'\t-Dataset [km/s]: {data}')
+            except:
+                dataOK = False
+                print(f'\t-Dataset [km/s]: UNABLE TO COMPUTE')
 
-    # BEL1D.pyplot.show()
+            ErrorModelSynth = [0.075, 20]
+            NoiseEstimate = np.asarray(np.divide(ErrorModelSynth[0]*data*1000 + np.divide(ErrorModelSynth[1],Frequency),1000)) # Standard deviation for all measurements in km/s
 
-    if ParallelComputing:
-        pool.terminate()
+            Prebel = BEL1D.PREBEL.POSTBEL2PREBEL(Prebel, Postbel, Dataset=data, reduceModels=True, Parallelization=ppComp)
+            Postbel = BEL1D.POSTBEL(Prebel)
+            Postbel.run(Dataset=data, nbSamples=Prebel.nbModels, NoiseModel=NoiseEstimate, verbose=True)
+            Models, Datasets = Postbel.runRejection(NoiseModel=NoiseEstimate, Parallelization=ppComp)
+            Postbel.ShowPostModels(Parallelization=ppComp, OtherModels=Models, OtherData=Datasets, OtherRMSE=True, RMSE=True, NoiseModel=NoiseEstimate)#, TrueModel=np.hstack((modelThick, modelVs)))
+            Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, OtherModels=Models, alpha=[0.01, 0.1])#, TrueModel=np.hstack((modelThick, modelVs)))
+            print(f'Model at {pos} [km]:\n\t-Thickness [km]:{modelThick}\n\t-Vs [km/s]:{modelVs}\n\t-Vp [km/s]:{np.sqrt((2*PoissonRatio-2)/(2*PoissonRatio-1) * np.power(modelVs,2))}')
+
+        # BEL1D.pyplot.show()
+
+        if ParallelComputing:
+            pool.terminate()
