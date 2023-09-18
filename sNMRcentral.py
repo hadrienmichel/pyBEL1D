@@ -89,7 +89,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     DataSetC = PrebelC.MODPARAM.forwardFun["Fun"](modelTrue)
     # Postbel run:
     PostbelC = BEL1D.POSTBEL(PrebelC)
-    PostbelC.run(Dataset=DataSetC, nbSamples=5000, NoiseModel=5)
+    PostbelC.run(Dataset=DataSetC, nbSamples=10000, NoiseModel=5)
     # Show results:
     # PostbelC.ShowPostCorr(TrueModel=modelTrue, OtherMethod=PrebelC.MODELS)
     
@@ -101,7 +101,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     DataSetM = PrebelM.MODPARAM.forwardFun["Fun"](modelTrue)
     # Postbel run:
     PostbelM = BEL1D.POSTBEL(PrebelM)
-    PostbelM.run(Dataset=DataSetM, nbSamples=5000, NoiseModel=5)
+    PostbelM.run(Dataset=DataSetM, nbSamples=10000, NoiseModel=5)
     # Show results:
     # PostbelM.ShowPostCorr(TrueModel=modelTrue, OtherMethod=PrebelM.MODELS)
 

@@ -38,6 +38,7 @@ from copy import deepcopy                   # For copying dataframes without lin
 # Forward models:
 from pygimli.physics.sNMR import MRS, MRS1dBlockQTModelling # sNMR (from pyGIMLI: https://www.pygimli.org/)
 from pysurf96 import surf96                                 # Dispersion Curves (from Github: https://github.com/hadrienmichel/pysurf96)
+from scipy.integrate import solve_ivp                       # Pendulum
 
 '''
 In order for parallelization to work efficiently for different type of forward models,
@@ -93,6 +94,50 @@ def ForwardSNMR(Model, nlay=None ,K=None ,zvec=None ,t=None):
     '''
     return MRS1dBlockQTModelling(nlay, K, zvec, t).response(Model)
 
+### Forward modelling for pendulum:
+def forwardPendulum(param, times):
+    
+    H = 10 # Heigth of the pivot point
+    l = param[0]
+    h = param[1]
+    M = param[2] # Not used in the forward --> unsensitive parameter
+
+    
+    tmp = H - h # Removing the component above ground
+    theta_0 = mt.acos(tmp/l)
+    omega_0 = mt.sqrt(9.81/l)
+
+    # Defining the system of equations:
+    f = lambda t, in2: np.asarray([in2[1], omega_0**2 * np.sin(in2[0])]).transpose()
+
+    x0 = np.asarray([theta_0, 0]).transpose()
+    tInit = 0
+
+    # Solve the equation system:
+    y = solve_ivp(f, (tInit, np.max(times)), x0, t_eval=times)
+    yReturn = np.ones_like(times)*H - np.cos(y.y[1,:])*l
+    return yReturn
+
+def forwardDCimage(freqsImage, velImage, model, nLayer):
+    imageDC = np.zeros(len(freqsImage), len(velImage))
+    periods = np.divide(1, freqsImage)
+    dispCurve = np.zeros_like(periods)
+    nbPeriods = np.ceil(periods/5)
+    fails = 0
+    for i in range(periods/5):
+        periodCurr = periods[i*5:min([(i+1)*5, len(periods)])]
+        try:
+            dispCurve[i*5:(i+1)*5] = surf96(thickness=np.append(model[0:nLayer-1], [0]),vp=model[2*nLayer-1:3*nLayer-1],vs=model[nLayer-1:2*nLayer-1],rho=model[3*nLayer-1:4*nLayer-1],periods=periodCurr,wave="rayleigh",mode=1,velocity="phase",flat_earth=True)
+        except:
+            fails += 1
+    if fails == nbPeriods:
+        raise Exception('Unable to compute dispersion curve for current model')
+    for i, vCompute in enumerate(dispCurve):
+        idx = np.argmin(np.abs(velImage-vCompute))
+        imageDC[i,idx] = 1
+    imageFlatten = np.flatten(imageDC)
+    return imageFlatten
+
 class MODELSET:
     '''MODELSET is an object class that can be initialized using:
         - the dedicated class methods (DC and SNMR) - see dedicated help
@@ -147,6 +192,53 @@ class MODELSET:
             self.logTransform = logTransform
             self.thicknessesFixed = thicknessesFixed
     
+    @classmethod
+    def pendulum(cls, prior=None, timings=None):
+        """Synthetic case of a pendulum.
+        
+        The class method takes as arguments:
+            - prior (ndarray): a 1D numpy array containing the prior model space.
+                                [l_min, l_max, h_min, h_max, M_min, M_max]
+            - Timings (ndarray): a 1D array containing the times at which the
+                                 position is sampled.
+        By default, all inputs are None and the prior is the exemple case.
+
+        Units of the prior are:
+            - Length (l) in m
+            - Height (h) in m
+            - Mass (M) in kg 
+        """
+        # Defining the prior and the names of the variables
+        H = 10 # Height of the axis 
+        if prior is None:
+            prior = np.asarray([1, 9, 1, 9, 0, 50])
+        if timings is None:
+            timings = np.arange(10, 121)
+        nbLayer = None
+        nbParam = 3
+        ListPrior = [None] * nbParam
+        NamesFullUnits = [None] * nbParam
+        NamesShort = [None] * nbParam
+        NamesShortUnits = [None] * nbParam
+        Mins = np.zeros((nbParam,))
+        Maxs = np.zeros((nbParam,))
+        Units = [" [m]", " [m]", " [kg]"]
+        NFull = ["Lenght ","Initial Heigth ","Mass "]
+        NShort = ["l", "h", "M"]
+        for i in range(nbParam):
+            ListPrior[i] = stats.uniform(loc=prior[i*2],scale=prior[i*2+1]-prior[i*2])
+            Mins[i] = prior[i*2]
+            Maxs[i] = prior[i*2+1]
+            NamesFullUnits[i] = NFull[i] + Units[i]
+            NamesShortUnits[i] = NShort[i] + Units[i]
+            NamesShort[i] = NShort[i]
+        method = "Pendulum"
+        paramNames = {"NamesFU":NamesFullUnits, "NamesSU":NamesShortUnits, "NamesS":NamesShort, "NamesGlobal":NFull, "NamesGlobalS":["Depth [m]", "W [/]", "T_2^* [sec]"],"DataUnits":"[V]","DataName":"Amplitude [V]","DataAxis":"Time/pulses [/]"}# The representation is automated -> no time displayed since pulses are agregated
+        
+        forward = {"Fun":lambda model: forwardPendulum(model,timings),"Axis":timings}
+        cond = lambda model: np.logical_and(np.greater_equal(model[0]+model[1],H),(np.logical_and(np.greater_equal(model,Mins),np.less_equal(model,Maxs)))).all()
+        return cls(prior=ListPrior,cond=cond,method=method,forwardFun=forward,paramNames=paramNames,nbLayer=nbLayer, logTransform=[False, False])
+
     @classmethod
     def SNMR(cls,prior=None,Kernel=None,Timing=None):
         """SNMR is a class method that generates a MODELSET class object for sNMR.
@@ -1035,11 +1127,12 @@ class PREBEL:
                 axes.set_ylim(bottom=maxDepth,top=0.0)
                 axes.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j+1]),fontsize=14)
                 axes.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]),fontsize=14)
-        for ax in axes.flat:
-            ax.label_outer()
+        if nbParamUnique > 1:
+            for ax in axes.flat:
+                ax.label_outer()
 
-        fig.suptitle("Prior model visualization",fontsize=16)
-        pyplot.show()
+        # fig.suptitle("Prior model visualization",fontsize=16)
+        pyplot.show(block=False)
 
     def ShowPriorDataset(self):
         '''SHOWPRIORDATASET is a function that displays the ensemble of datasets modelled from
@@ -1052,7 +1145,7 @@ class PREBEL:
             ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(self.FORWARD[j,:]),color='gray')
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
-        pyplot.show()
+        pyplot.show(block=False)
         
 class POSTBEL:
     """Object that is used to store the POSTBEL elements:
@@ -1844,7 +1937,7 @@ class POSTBEL:
                 ax.plot(self.MODPARAM.forwardFun["Axis"],np.squeeze(PlotData[j,:len(self.MODPARAM.forwardFun["Axis"])]),color='gray')
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]),fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]),fontsize=14)
-        if False: # RMSE:
+        if RMSE:
             # fig.subplots_adjust(bottom=0.30)
             ax_colorbar = fig.add_subplot(gs[-1,:]) #fig.add_axes([0.10, 0.15, 0.80, 0.05])
             nb_inter = 1000

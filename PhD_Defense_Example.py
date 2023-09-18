@@ -63,10 +63,10 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     '''
     Graphs = True               # Obtain all the graphs?
     ParallelComputing = True    # Use parallel computing whenever possible?
-    BenchmarkCompute = False     # Compute the results for the benchmark model?
-    McMCRejection = False       # Compare to MCMC and rejection sampling
+    BenchmarkCompute = True     # Compute the results for the benchmark model?
+    McMCRejection = True       # Compare to MCMC and rejection sampling
     TestOtherNbLayers = False    # Testing the benchmark model with more layers than what is really in the model. Only active if BenchmarkCompute is.
-    MirandolaCompute = True    # Compute the results for the Mirandola case study?
+    MirandolaCompute = False    # Compute the results for the Mirandola case study?
     DiscussionCompute = False   # Compute the necessary results for the discussion? WARNING: VERY LONG COMPUTATIONS
     verbose = True              # Output all the details about the current progress of the computations
     statsCompute = True         # Parameter for the computation/retun of statistics along with the iterations.
@@ -176,6 +176,30 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         
         # Initializing the model:
         TrueModel, Periods, Dataset, NoiseEstimate, ModelSynthetic = buildMODELSET()
+        ### Plot for profile and dataset
+        # fig = pyplot.figure(figsize=[5,10])# Creates the figure space
+        # axs = fig.subplots()
+        # axs.step(np.append(TrueModel[2:], TrueModel[-1]),np.append(np.append(0, TrueModel[:2]), 0.150),where='pre',color='r')
+        # axs.set_xlabel('S-wave velocity [km/s]')
+        # axs.set_ylabel('Depth [km]')
+        # axs.invert_yaxis()
+        # axs.grid()
+        # axs.set_xlim(left=0.0, right=1.0)
+        # axs.set_ylim(top=0.0, bottom=0.150)
+
+        # _, ax = pyplot.subplots()
+        # ax.plot(Periods, Dataset, color='r')
+        # ax.plot(Periods, Dataset+NoiseEstimate, ':', color='r')
+        # ax.plot(Periods, Dataset-NoiseEstimate, ':', color='r')
+        # ax.set_xlabel('Periods [s]')
+        # ax.set_ylabel('Phase velocity [km/s]')
+        # ax.grid()
+        # ax.set_ylim(bottom=0.0, top=0.8)
+        # ax.set_xlim(left=0.0, right=0.8)
+
+        # pyplot.show()
+
+        ### Begin IPR
         nbModelsBase = 1000
         def MixingFunc(iter:int) -> float:
             return 1# Always keeping the same proportion of models as the initial prior (see paper for argumentation).
@@ -186,6 +210,66 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         else:
             Prebel, Postbel, PrebelInit = BEL1D.IPR(MODEL=ModelSynthetic,Dataset=Dataset,NoiseEstimate=NoiseEstimate,Parallelization=ppComp,
                                                     nbModelsBase=nbModelsBase,nbModelsSample=nbModelsBase,Mixing=None,Graphs=Graphs, TrueModel=TrueModel)
+
+        ### Graphs for the prior analysis:
+        # PrebelInit.ShowPriorDataset()
+        # ax = pyplot.gca()
+        # ax.plot(Periods, Dataset, color='r')
+        # ax.plot(Periods, Dataset+NoiseEstimate, ':', color='r')
+        # ax.plot(Periods, Dataset-NoiseEstimate, ':', color='r')
+        # ax.set_xlabel('Periods [s]')
+        # ax.set_ylabel('Phase velocity [km/s]')
+        # ax.grid()
+        # ax.set_ylim(bottom=0.0, top=0.8)
+        # ax.set_xlim(left=0.0, right=0.8)
+
+        # PrebelInit.ShowPreModels()
+        # axs = pyplot.gca()
+        # axs.step(np.append(TrueModel[2:], TrueModel[-1]),np.append(np.append(0, TrueModel[:2]), 0.150),where='pre',color='r')
+        # axs.set_xlabel('S-wave velocity [km/s]')
+        # axs.set_ylabel('Depth [km]')
+        # axs.invert_yaxis()
+        # axs.grid()
+        # axs.set_xlim(left=0.0, right=1.0)
+        # axs.set_ylim(top=0.0, bottom=0.150)
+
+        # ## Creating a graph with the variability for PCA dimensions in the datasets:
+        # import sklearn
+        # pca_data = sklearn.decomposition.PCA()
+        # d_h = pca_data.fit_transform(PrebelInit.FORWARD)
+        # # Dataset += np.ones_like(Dataset)
+        # d_obs_h = pca_data.transform(np.reshape(Dataset,(1,-1)))
+        # fig, ax = pyplot.subplots(2,1)
+        # for i in range(50):
+        #     ax[0].scatter(np.ones_like(d_h[:,i])*(i), d_h[:,i], color=[0.5, 0.5, 0.5])
+        #     ax[0].scatter(i, d_obs_h[0, i], color='r')
+        # ax[1].plot(range(50), np.cumsum(pca_data.explained_variance_ratio_*100), '.-', color='b')
+        # # Number of requiered dimensions:
+        # nbDimVar = 2-1
+        # nbDimNeeded = 5-1
+        # ax[1].axvline(nbDimVar, color='k')
+        # ax[1].axvline(nbDimNeeded, color='r')
+        # ax[0].set_ylim(top=1.5, bottom=-1.5)
+        # ax[1].set_xlabel('PCA dimension #')
+        # ax[0].set_ylabel('PCA values [/]')
+        # ax[1].set_ylabel('Cumulative PCA variance [%]')
+        # ax[0].grid()
+        # ax[1].grid()
+
+        # nbComponents = 5
+        # cca_transform = sklearn.cross_decomposition.CCA(n_components=nbComponents)
+        # d_c,m_c = cca_transform.fit_transform(d_h,PrebelInit.MODELS)
+        # d_obs_c = cca_transform.transform(d_obs_h)
+        # for i in range(nbComponents):
+        #     fig, ax = pyplot.subplots()
+        #     ax.scatter(d_c[:,i], m_c[:,i], color=[0.5, 0.5, 0.5])
+        #     ax.axvline(d_obs_c[0,i], color='r', label='Observed data')
+        #     ax.set_xlabel(rf'$d_{i+1}^c$')
+        #     ax.set_ylabel(rf'$m_{i+1}^c$')
+        #     ax.legend()
+
+        # PrebelInit.KDE.ShowKDE(Xvals=d_obs_c)
+        # pyplot.show()
         if Graphs:
             # Show final results analysis:
             if True: # First iteration results?
@@ -799,66 +883,64 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ## Running the rejection sampling:
         Rejection, RejectionData = Postbel.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
         # Postbel.ShowPostModels(RMSE=True, OtherModels=Rejection, OtherData=RejectionData) #, NoiseModel=NoiseEstimate)
-        # pyplot.show(block=True)
-        # Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionData)
-        # fig = pyplot.gcf()
-        # ax = fig.axes[0]
-        # DataPath = "Data/DC/Mirandola_InterPACIFIC/"
-        # files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
-        # for currFile in files:
-        #     DatasetOther = np.loadtxt(DataPath+currFile)
-        #     DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
-        #     DatasetOther[DatasetOther==0] = np.nan
-        #     ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
-        # ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
+        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionData)
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
 
-        # Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1], OtherModels=Rejection)
+        Postbel.ShowPostCorr(OtherMethod=PrebelInit.MODELS, alpha=[0.05, 1], OtherModels=Rejection)
 
-        # # What if rejection after one iteration?
-        # PostbelInit = BEL1D.POSTBEL(PrebelInit)
-        # PostbelInit.run(Dataset=DatasetMIR, nbSamples=nbModelsBase, NoiseModel=NoiseEstimate)
-        # RejectionInit, RejectionDataInit = PostbelInit.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
-        # # Postbel.ShowPostModels(RMSE=True, OtherModels=RejectionInit, OtherData=RejectionDataInit) #, NoiseModel=NoiseEstimate)
-        # Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionDataInit)
-        # fig = pyplot.gcf()
-        # ax = fig.axes[0]
-        # DataPath = "Data/DC/Mirandola_InterPACIFIC/"
-        # files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
-        # for currFile in files:
-        #     DatasetOther = np.loadtxt(DataPath+currFile)
-        #     DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
-        #     DatasetOther[DatasetOther==0] = np.nan
-        #     ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
-        # ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
-        # ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
+        # What if rejection after one iteration?
+        PostbelInit = BEL1D.POSTBEL(PrebelInit)
+        PostbelInit.run(Dataset=DatasetMIR, nbSamples=nbModelsBase, NoiseModel=NoiseEstimate)
+        RejectionInit, RejectionDataInit = PostbelInit.runRejection(Parallelization=ppComp, NoiseModel=NoiseEstimate, verbose=True)
+        # Postbel.ShowPostModels(RMSE=True, OtherModels=RejectionInit, OtherData=RejectionDataInit) #, NoiseModel=NoiseEstimate)
+        Postbel.ShowDataset(RMSE=True, Prior=True, OtherData=RejectionDataInit)
+        fig = pyplot.gcf()
+        ax = fig.axes[0]
+        DataPath = "Data/DC/Mirandola_InterPACIFIC/"
+        files = [f for f in listdir(DataPath) if isfile(join(DataPath, f))]
+        for currFile in files:
+            DatasetOther = np.loadtxt(DataPath+currFile)
+            DatasetOther = np.divide(DatasetOther[:,1],1000) # Dataset for surf96 in km/s
+            DatasetOther[DatasetOther==0] = np.nan
+            ax.plot(np.divide(1,FreqMIR), DatasetOther,color='w',marker= '.', linestyle='None', markeredgecolor='none')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-NoiseEstimate,'k--')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR+2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR), DatasetMIR-2*NoiseEstimate,'k:')
+        ax.plot(np.divide(1,FreqMIR),DatasetMIR,'k',linewidth=2) # Adding the field dataset on top of the graph
 
-        # fig, ax = pyplot.subplots()
-        # ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior', alpha=0.5)
-        # ax.hist(np.sum(RejectionInit[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+Rejection)', alpha=0.5)
-        # ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR)', alpha=0.5)
-        # ax.hist(np.sum(Rejection[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR+Rejection)', alpha=0.5)
-        # ylim = ax.get_ylim()
-        # dBedrock = 118
-        # ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
-        # ax.set_xlabel('Depth to bedrock [m]')
-        # ax.set_ylabel('Probability estimation [/]')
-        # ax.legend()
+        fig, ax = pyplot.subplots()
+        ax.hist(np.sum(PrebelInit.MODELS[:,:2],axis=1)*1000,density=True,label='Prior', alpha=0.5)
+        ax.hist(np.sum(RejectionInit[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+Rejection)', alpha=0.5)
+        ax.hist(np.sum(Postbel.SAMPLES[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR)', alpha=0.5)
+        ax.hist(np.sum(Rejection[:,:2],axis=1)*1000,density=True,label='Posterior (BEL1D+IPR+Rejection)', alpha=0.5)
+        ylim = ax.get_ylim()
+        dBedrock = 118
+        ax.plot([dBedrock, dBedrock],ylim,'k',label='Measured')
+        ax.set_xlabel('Depth to bedrock [m]')
+        ax.set_ylabel('Probability estimation [/]')
+        ax.legend()
 
         ### Creating a figure with the results for the multiple layers test:
-        fig = pyplot.figure(figsize=[5,10])# 16 is 5 if only 1 model
+        fig = pyplot.figure(figsize=[16,10])# 16 is 5 if only 1 model
         # models = [[Postbel.SAMPLES, Postbel.SAMPLESDATA,'Obtained distribution']]
-        models = [[Rejection, RejectionData, 'BEL1D + IPR + Rejection']]
-            # [PostbelInit.SAMPLES, PostbelInit.SAMPLESDATA, 'BEL1D'],
-            #       [RejectionInit, RejectionDataInit, 'BEL1D + Rejection'],
-            #       [Postbel.SAMPLES, Postbel.SAMPLESDATA, 'BEL1D + IPR'],
-            #       [Rejection, RejectionData, 'BEL1D + IPR + Rejection']]
+        models = [[PostbelInit.SAMPLES, PostbelInit.SAMPLESDATA, 'BEL1D'],
+                  [RejectionInit, RejectionDataInit, 'BEL1D + Rejection'],
+                  [Postbel.SAMPLES, Postbel.SAMPLESDATA, 'BEL1D + IPR'],
+                  [Rejection, RejectionData, 'BEL1D + IPR + Rejection']]
         nbLayer = 3
         gs = fig.add_gridspec(9, len(models))
         # Compute the RMS scale:

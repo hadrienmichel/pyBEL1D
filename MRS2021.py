@@ -2,6 +2,12 @@ from pyBEL1D import BEL1D
 from pyBEL1D.BEL1D import LoadPOSTBEL, LoadPREBEL
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import pyplot, colors                   # For graphics on post-processing
+import matplotlib
+pyplot.rcParams['font.size'] = 18
+pyplot.rcParams['figure.autolayout'] = True
+pyplot.rcParams['xtick.labelsize'] = 16
+pyplot.rcParams['ytick.labelsize'] = 16
 from pathos import multiprocessing as mp
 from pathos import pools as pp
 from os import listdir
@@ -49,18 +55,18 @@ if __name__ == '__main__':
     # NoisyDatasetBenchmark = DatasetBenchmark + np.random.randn(len(DatasetBenchmark))*Noise
 
     # RunBenchmark = True
-    # ParallelComputing = True
-    # if ParallelComputing:
-    #     pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of available CPU cores
-    #     ppComp = [True, pool]
-    # else:
-    #     ppComp = [False, None] # No parallel computing
+    ParallelComputing = True
+    if ParallelComputing:
+        pool = pp.ProcessPool(mp.cpu_count())# Create the parallel pool with at most the number of available CPU cores
+        ppComp = [True, pool]
+    else:
+        ppComp = [False, None] # No parallel computing
     # if RunBenchmark:
     #     ## Creating the BEL1D instances and IPR:
     #     Prebel, Postbel, PrebelInit , stats = BEL1D.IPR(MODEL=ModelSet, Dataset=NoisyDatasetBenchmark, NoiseEstimate=Noise*1e9, Parallelization=ppComp,
     #         nbModelsBase=1000, nbModelsSample=1000, stats=True, Mixing=(lambda x: 1), Graphs=False, saveIters=True, verbose=True)
     
-    RunFigs = True
+    RunFigs = False
     if RunFigs:
         # Get the number of iterations:
         nbIter = len(listdir('./IPR_Results/'))
@@ -156,7 +162,7 @@ if __name__ == '__main__':
         print(corr[3,1])
         plt.show(block=True)
 
-    MtRigi = False
+    MtRigi = True
     if MtRigi:
         from pygimli.physics import sNMR
         Dataset = "Data/sNMR/SEG2020_MtRigi.mrsd"
@@ -168,25 +174,28 @@ if __name__ == '__main__':
         TimingField = ModelParam.t
         Noise = 18 #nV
         # Initialize BEL1D:
-        nbSampled = 5000
+        nbSampled = 10000
         priorMtRigi = np.asarray([[0.0, 7.5, 0.30, 0.80, 0.0, 0.200], [0, 0, 0.0, 0.15, 0.100, 0.400]])
         MODEL_MtRigi = BEL1D.MODELSET().SNMR(prior=priorMtRigi,Kernel=Kernel, Timing=TimingField)
-        PrebelMtRigi, PostbelMtRigi, PrebelInitMtRigi = BEL1D.IPR(MODEL_MtRigi, FieldData, NoiseEstimate=18, Parallelization=ppComp, nbModelsBase=1000, nbModelsSample=1000, verbose=True)
+        PrebelMtRigi, PostbelMtRigi, PrebelInitMtRigi = BEL1D.IPR(MODEL_MtRigi, FieldData, NoiseEstimate=18, Parallelization=ppComp, nbModelsBase=10000, nbModelsSample=10000, verbose=True)
 
         PostbelMtRigi.ShowPost(prior=True, priorOther=PrebelInitMtRigi.MODELS)
         plt.savefig('./MRS2021Figs/MtRigi_Post.png',transparent=True, dpi=300)
-        PostbelMtRigi.ShowPostCorr(OtherMethod=PrebelInitMtRigi.MODELS, alpha=[0.05, 0.5])
+        PostbelMtRigi.ShowPostCorr(OtherMethod=PrebelInitMtRigi.MODELS, alpha=[0.2, 0.5])
         plt.savefig('./MRS2021Figs/MtRigi_PostCorr.png',transparent=True, dpi=300)
         
 
         fig = plt.figure(figsize=[10,10])# Creates the figure space
         ax = fig.subplots()
         ax.plot(PrebelInitMtRigi.MODELS[:,0],PrebelInitMtRigi.MODELS[:,1],'.y',alpha=1, markersize=20, markeredgecolor='none', label='Prior')
-        ax.plot(PostbelMtRigi.SAMPLES[:,0],PostbelMtRigi.SAMPLES[:,1],'.b',alpha=0.05, markersize=20, markeredgecolor='none', label='Posterior')
+        ax.plot(PostbelMtRigi.SAMPLES[:,0],PostbelMtRigi.SAMPLES[:,1],'.b',alpha=0.2, markersize=20, markeredgecolor='none', label='Posterior')
         ax.set_xlabel(r'$e_{1} [m]$')
         ax.set_ylabel(r'$W_{1} [/]$')
         plt.tight_layout()
         plt.savefig('./MRS2021Figs/MtRigi_PostCorrZoom.png',transparent=True, dpi=300)
+
+        PostbelMtRigi.ShowPostModels(RMSE=True, Parallelization=ppComp)
+
         plt.show(block=True)
 
     # pool.terminate()

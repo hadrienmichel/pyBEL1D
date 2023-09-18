@@ -351,7 +351,7 @@ class KDE:
                 # cmap.set_under('white')
                 im = ax.pcolormesh(X_KDE,Y_KDE,np.transpose(self.KDE[i]))#, cmap=cmap, vmin=np.max(self.KDE[i])/100, vmax=np.max(self.KDE[i]))
                 ax.set_title('Dimension {}'.format(str(i+1)))
-                ax.set_xlabel('$D^c_{}$'.format(str(i+1)))
+                ax.set_xlabel('$d^c_{}$'.format(str(i+1)))
                 divider = make_axes_locatable(ax)
                 cax = divider.append_axes('right', size='2%', pad=0.05)
                 cb = fig.colorbar(im, cax=cax, orientation='vertical')
@@ -362,21 +362,23 @@ class KDE:
                     t.set_rotation(30)
                 if (Xvals is not None):
                     ax.plot([Xvals[i],Xvals[i]],np.asarray(ax.get_ylim()),'r')
-                    ax.yaxis.set_ticklabels([])
                     if (self.Dist[i] is not None):
                         # Add graph on the left with KDE distribution for Xvals
+                        ax.yaxis.set_ticklabels([])
                         pyplot.subplots_adjust(left=0.4)
                         ax_hist = divider.append_axes('left', size='15%', pad=0.1) #pyplot.axes([0.15, 0.1, 0.10, 0.8])
                         ax_hist.plot(np.squeeze(self.Dist[i][1]),np.squeeze(self.Dist[i][0]),'k')
                         ax_hist.set_xlabel('P (/)')
                         ax_hist.set_ylabel('$M^c_{}$'.format(str(i+1)))
                         ax_hist.set_ylim(ax.get_ylim())
+                    else: 
+                        ax.set_ylabel('$m^c_{}$'.format(str(i+1)))
                     if Noise is not None:
                         linespec = [0.25, 0.75, 1, 1, 0.75, 0.25]
                         for k, mult in enumerate([-3, -2, -1, 1, 2, 3]):
                             ax.plot([Xvals[i]+mult*Noise[i],Xvals[i]+mult*Noise[i]],np.asarray(ax.get_ylim()),':r', linewidth=linespec[k])
                 else:
-                    ax.set_ylabel('$M^c_{}$'.format(str(i+1)))
+                    ax.set_ylabel('$m^c_{}$'.format(str(i+1)))
                 pyplot.tight_layout()
                 pyplot.show(block=False)
             else:

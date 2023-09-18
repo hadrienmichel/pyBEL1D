@@ -102,8 +102,8 @@ if __name__ == '__main__':
 
     from pysurf96 import surf96                     # Code for the forward modelling of dispersion curves
     ### Parameters for the computation:
-    RunFixedLayers = False
-    RunPostPropag = True
+    RunFixedLayers = True
+    RunPostPropag = False
     ParallelComputing = True
     RandomSeed = False
 
@@ -137,7 +137,8 @@ if __name__ == '__main__':
             nbModelsBase=10000, nbModelsSample=10000, stats=True, reduceModels=True, Mixing=(lambda x: 1), Graphs=False, saveIters=False, verbose=True)
         # Displaying the results:
         Postbel.ShowPostModels(TrueModel=SyntheticBenchmarkSNMR, RMSE=True, Parallelization=ppComp)
-
+        plt.tight_layout()
+        plt.savefig('./10LayersModel_Test.png',transparent=True, dpi=300)
         plt.show()
 
     '''2) Propagating the posterior model from space from close-by points'''
@@ -164,6 +165,7 @@ if __name__ == '__main__':
         ax.set_xlim(left=0.0, right=0.8)
         ax.set_title('Initial Prior: Model 1', fontsize=16)
         plt.tight_layout()
+        plt.savefig('./PostPropag_Model1_Init.png',transparent=True, dpi=300)
         Postbel2.ShowPostModels(TrueModel=TrueModel2, RMSE=True, Parallelization=ppComp)
         fig = plt.gcf()
         ax = fig.get_axes()[0]
@@ -171,6 +173,7 @@ if __name__ == '__main__':
         ax.set_xlim(left=0.0, right=0.8)
         ax.set_title('Initial Prior: Model 2', fontsize=16)
         plt.tight_layout()
+        plt.savefig('./PostPropag_Model2_Init.png',transparent=True, dpi=300)
 
         ### Creating a new instance with mixing of initial prior and posterior 1 form dataset 2:
         sharePost = 1/4
@@ -188,6 +191,7 @@ if __name__ == '__main__':
         ax.set_xlim(left=0.0, right=0.8)
         ax.set_title('Propagated Posterior: Model 2', fontsize=16)
         plt.tight_layout()
+        plt.savefig('./PostPropag_Model2_Propag.png',transparent=True, dpi=300)
 
         plt.show()
         
