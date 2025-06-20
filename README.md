@@ -32,11 +32,11 @@ conda install -c msys2 m2w64-toolchain
 pip install git+https://github.com/miili/pysurf96
 
 # For FWSW (full wavefield surface wave) application:
-# 1 - composti:
-# We refer to the github of Matti Niskanen (https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
-# and recommend to follow the installation steps suggested therein.
-# 2 - swprocess:
-# For further information, see the github of Joseph P. Vantassel (https://github.com/jpvantassel/swprocess).
+1 - composti:
+We refer to the github of Matti Niskanen (https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
+and recommend to follow the installation steps suggested therein.
+2 - swprocess:
+For further information, see the github of Joseph P. Vantassel [github](https://github.com/jpvantassel/swprocess). 
 pip install swprocess
 ```
 
