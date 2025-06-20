@@ -53,7 +53,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     '''
     Graphs = True               # Obtain all the graphs?
     ParallelComputing = False   # Use parallel computing whenever possible?
-    FWImage = True              # ENV COMPOSTI - projection of fullwaveform images (synthetic and real data)
+    FWImage = True              # Projection of dispersion images
     verbose = True              # Output all the details about the current progress of the computations
     stats = True                # Parameter for the computation/retrun of statistics along with the iterations.
     #########################################################################################
@@ -71,7 +71,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
     if FWImage:
 
         ## PRIORS
-        # priors are structured as follows:
+        # uniform priors are structured as follows:
         # prior = np.array([[th1_min, th1_max, Vs1_min, Vs1_max, Vp1_min, Vp1_max], #rho1_min, rho1_max, Qalphas1_min, Qalphas2_max, Qbetas1_min, Qbetas1_max
         #                   [th2_min, th2_max, Vs2_min, ...],
         #                   [th3_min, ...],
@@ -90,7 +90,8 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         #                        [0, 0, 0.2, 0.5, 1.0, 2.0, 20, 60, 10, 30]])  # , 1., 2.5]])
 
         # # GAUSSIAN prior SYNTHETIC (Tokimatsu et al. 1992)
-        # prior = np.array([[0.002, 0.0005, 0.18, 0.05, 0.3, 0.1], #, 1.8, .5], # mu et sigma
+        # # here, values are not min and max, but mu and sigma
+        # prior = np.array([[0.002, 0.0005, 0.18, 0.05, 0.3, 0.1], #, 1.8, .5],
         #                   [0.004, 0.001, 0.18, 0.05, 1., 0.25], #, 1.8, .5],
         #                   [0.0075, 0.001, 0.18, 0.05, 1.5, 0.25], #, 1.8, .5],
         #                   [0, 0, 0.35, 0.1, 1.5, 0.25]])#, 1.8, .5]])
@@ -101,7 +102,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ## MODELS
         ## SYNTHETIC BENCHMARKS
 
-        # # benchmark model 9-c1 (Tokimatsu et al. 1992 - case 1, normal) ## OUT OF DIM 4
+        # # benchmark model 9-c1 (Tokimatsu et al. 1992 - case 1, normal)
         # Thickness = np.asarray([0.002, 0.004, 0.008])
         # Vs = np.asarray([0.08, 0.12, 0.18, 0.36])
         # Vp = np.asarray([0.3, 1.0, 1.4, 1.4])
@@ -196,11 +197,11 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
 
 
-        ModelsetImage = BEL1D.MODELSET.DC_FW_image(prior=prior, priorDist='Uniform', priorBound=None, fMaxCalc=fMax,
-                                                   fMaxImage=fMaxImage, vMax=vMax, xReceivers=xReceivers, source_sw=source_sw,
-                                                   Tacq=Tacq, settingsSW=settings,
+        ModelsetImage = BEL1D.MODELSET.DC_FW_image(prior=prior, priorDist='Uniform', priorBound=None,
+                                                   fMaxCalc=fMax, fMaxImage=fMaxImage, vMax=vMax, xReceivers=xReceivers,
+                                                   source_sw=source_sw, Tacq=Tacq, settingsSW=settings,
                                                    rho_fixed=True, rho_val=2500, propagate_noise=True)#, add_noise_coherent=False)
-        
+
         dataModel, fSyn, vSyn, u_z_time_cpp_Levin = BEL1D.ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
                                                                          xReceivers=xReceivers, source=source, source_sw=source_sw,
                                                                          options=options, Tacq=Tacq, dt=dt, settingsSW=settings,
