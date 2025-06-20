@@ -67,7 +67,7 @@ All the functions must be in the pyBEL1D folder to run (or you need to import th
 - The file exampleSNMR.py provides a commented example on how to run the codes for SNMR data.
 - The file exampleDC.py provides an example on how to use BEL1D with a dispersion curve originating from real data.
 - The file FWSW_synthetic-example.py provides an application of a synthetic benchmark for dispersion image creation by full wavefield transform and BEL projection.
-- The file FWSW_field-example.py provides a field data application for dispersion image creation by full wavefield transform and BEL projection.
+- The file FWSW_field-example.py provides a field data application (download S2_field-data.ascii) for dispersion image creation by full wavefield transform and BEL projection.
 
 # Acknowledgement
 The forward model for sNMR is provided by [pygimli](https://www.pygimli.org).
