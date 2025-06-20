@@ -30,28 +30,32 @@ conda install pygimli
 conda install libpython
 conda install -c msys2 m2w64-toolchain
 pip install git+https://github.com/miili/pysurf96
-
-```
-For FWSW (full wavefield surface wave) application:
-1 - composti:
-We refer to the github of Matti Niskanen (https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
-and recommend to follow the installation steps suggested therein.
-2 - swprocess:
-For further information, see the github of Joseph P. Vantassel (https://github.com/jpvantassel/swprocess). 
-```
-pip install swprocess
 ```
 
-For MACOS installation, replace the lines for the DC application with (not tested):
+For MACOS installation, replace the last 3 lines with (not tested):
 ```
 conda install -c anaconda gfortran_osx-64
 pip install git+https://github.com/miili/pysurf96
 ```
 
-On Linux machines, for DC, run (not tested):
+On Linux machines run (not tested):
 ```
 conda install -c anaconda gfortran_linux-64
 pip install git+https://github.com/miili/pysurf96
+```
+
+For FWSW (full wavefield surface wave) application:
+
+1 - composti:
+
+We refer to the github of Matti Niskanen (https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
+and recommend to follow the installation steps suggested therein.
+
+2 - swprocess:
+
+For further information, see the github of Joseph P. Vantassel (https://github.com/jpvantassel/swprocess). 
+```
+pip install swprocess
 ```
 
 Then run the code in this environment (bel1d for the example above).
