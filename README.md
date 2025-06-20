@@ -48,12 +48,12 @@ For FWSW (full wavefield surface wave) application:
 
 1 - composti:
 
-We refer to the github of Matti Niskanen (https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
+We refer to the github of Matti Niskanen [composti](https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
 and recommend to follow the installation steps suggested therein.
 
 2 - swprocess:
 
-For further information, see the github of Joseph P. Vantassel (https://github.com/jpvantassel/swprocess). 
+For further information, see the github of Joseph P. Vantassel [swprocess](https://github.com/jpvantassel/swprocess). 
 ```
 pip install swprocess
 ```
