@@ -148,45 +148,6 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
         Qbetas = np.ones_like(betas) * 150
 
 
-    # expected_len = (nLayer - 1) + 2 * nLayer
-    # if not rho_fixed:
-    #     expected_len += nLayer
-    # if Q:
-    #     expected_len += nLayer if Qalphas_fixed else 2 * nLayer
-    #
-    # if len(model) != expected_len:
-    #     raise ValueError(f"Model length {len(model)} does not match expected length {expected_len}.")
-    # print(f"At Qbeta, idx={idx}, remaining model len={len(model) - idx}")
-
-    # # Naming scheme conform to COMPOSTI
-    # thicknesses = np.append(model[0:nLayer - 1], [0]) * 1000
-    # alphas = model[2 * nLayer - 1:3 * nLayer - 1] * 1000  # Vp
-    # betas = model[nLayer - 1:2 * nLayer - 1] * 1000  # Vs
-    # if rho_fixed:
-    #     rhos = np.ones_like(betas) * rho_val
-    #     if Q:
-    #         if Qalphas_fixed:
-    #             Qalphas = np.ones_like(alphas) * 20  # alphas * 50
-    #             Qbetas = model[3 * nLayer - 1:4 * nLayer - 1]
-    #         else:
-    #             Qalphas = model[3 * nLayer - 1:4 * nLayer - 1]
-    #             Qbetas = model[4 * nLayer - 1:5 * nLayer - 1]
-    #     else:
-    #         Qalphas = np.ones_like(alphas) * 150  # alphas * 50
-    #         Qbetas = np.ones_like(betas) * 150  # betas * 20
-    # else:
-    #     rhos = model[3 * nLayer - 1:4 * nLayer - 1]
-    #     if Q:
-    #         if Qalphas_fixed:
-    #             Qalphas = np.ones_like(alphas) * 20  # alphas * 50
-    #             Qbetas = model[4 * nLayer - 1:5 * nLayer - 1]
-    #         else:
-    #             Qalphas = model[4 * nLayer - 1:5 * nLayer - 1]
-    #             Qbetas = model[5 * nLayer - 1:6 * nLayer - 1]
-    #     else:
-    #         Qalphas = np.ones_like(alphas) * 150  # alphas * 50
-    #         Qbetas = np.ones_like(betas) * 150  # betas * 20
-
     # Combine all layer properties into a single Fortran-contiguous 2D array
     # Each row: [Vp, Qp, Vs, Qs, rho, thickness]
     layers = np.c_[alphas, Qalphas, betas, Qbetas, rhos, thicknesses].astype(np.float64)
@@ -236,8 +197,8 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
     wavefieldTransform = FK.from_array(array=array, settings=settingsSW["processing"])
 
     # choose between 'absolute-maximum' (similar to "spectrum power" in geopsy)
-    # or 'frequency-maximum' (similar to "maximum beam power" in geopsy, used for sythetic tests)
-    wavefieldTransform.normalize(by='absolute-maximum')
+    # or 'frequency-maximum' (similar to "maximum beam power" in geopsy, used for synthetic tests)
+    wavefieldTransform.normalize(by='frequency-maximum')
 
     Upf = wavefieldTransform.power
 
@@ -600,7 +561,57 @@ class MODELSET:
                     rho_val: float = 1800.0, Q: bool = False, Qalphas_fixed: bool = True, propagate_noise: bool = False,
                     add_noise_coherent: bool = False):
         """
+        Constructs a forward modeling setup for surface wave analysis using a wavefield transform method (FK, FDBF, ...)
+
+        Parameters:
+        ----------
+        prior : np.ndarray, optional
+            A 2D array containing the prior distribution bounds or Gaussian parameters for each layer and parameter.
+        priorDist : str, default='Uniform'
+            Type of prior distribution: 'Uniform' or 'Gaussian'.
+        priorBound : np.ndarray, optional
+            Optional bounds to be used with Gaussian priors.
+        settingsSW : dict, optional
+            Settings for surface wave (SW) imaging (frequency range, velocity limits, etc.).
+        fMaxCalc : float, default=100
+            Maximum frequency (Hz) for synthetic signal calculation.
+        fMaxImage : float, default=50
+            Maximum frequency (Hz) used in the f-k image construction.
+        vMax : float, default=1500
+            Maximum phase velocity (m/s) considered in dispersion image.
+        xReceivers : np.ndarray, optional
+            Array of receiver positions in meters.
+        source_sw : Source, optional
+            Source object for surface wave imaging.
+        Tacq : float, default=0.3
+            Acquisition time duration (s).
+        rho_fixed : bool, default=False
+            If True, fixes the density across all layers.
+        rho_val : float, default=1800.0
+            Fixed density value (kg/m³) if `rho_fixed` is True.
+        Q : bool, default=False
+            If True, includes quality factors (Qbeta, optionally Qalpha) in the model.
+        Qalphas_fixed : bool, default=True
+            If True, Qalpha is fixed (not inverted), only Qbeta is variable.
+        propagate_noise : bool, default=False
+            If True, includes random noise in the simulation pipeline.
+        add_noise_coherent : bool, default=False
+            If True, adds coherent noise to the synthetic wavefield.
+
+        Returns:
+        -------
+        cls instance
+            A configured instance of the inversion class with prior distributions, forward model,
+            and auxiliary plotting/naming metadata. Ready to be passed to samplers or optimizers.
+
+        Notes:
+        ------
+        - This method is tailored for use with COMPOSTI, a seismic wavefield simulation library.
+        - The forward model uses ForwardFWIMAGE to simulate frequency-domain data from a layered earth model.
+        - Priors and model parameters include thickness, Vs, Vp, (optional Qbeta, Qalpha), and density.
+        - Includes support for both uniform and Gaussian priors.
         """
+
         # from pysurf96 import surf96
         if prior is None:
             if rho_fixed:
@@ -630,14 +641,6 @@ class MODELSET:
         NamesShortUnits = [None] * ((nLayer * nParam) - 1)  # Half space at bottom
         Mins = np.zeros(((nLayer * nParam) - 1,))
         Maxs = np.zeros(((nLayer * nParam) - 1,))
-        # if rho_fixed:
-        #     Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]"]
-        #     NFull = ["Thickness\\ ", "s-Wave\\ velocity\\ ", "p-Wave\\ velocity\\ "]
-        #     NShort = ["th_{", "Vs_{", "Vp_{"]
-        # else:
-        #     Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]", "\\ [T/m^3]"]
-        #     NFull = ["Thickness\\ ", "s-Wave\\ velocity\\ ", "p-Wave\\ velocity\\ ", "Density\\ "]
-        #     NShort = ["th_{", "Vs_{", "Vp_{", "\\rho_{"]
 
         # Initialize lists with basic parameters
         Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]"]
@@ -684,16 +687,6 @@ class MODELSET:
                     NamesShort[ident] = NShort[j] + str(i + 1) + "}"
                     ident += 1
         method = "DC_FW_image"
-        # if rho_fixed:
-        #     paramNames = {"NamesFU": NamesFullUnits, "NamesSU": NamesShortUnits, "NamesS": NamesShort,
-        #                   "NamesGlobal": NFull,
-        #                   "NamesGlobalS": ["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]"],
-        #                   "DataUnits": "[km/s]", "DataName": "Phase\\ velocity\\ [km/s]", "DataAxis": "Periods\\ [s]"}
-        # else:
-        #     paramNames = {"NamesFU": NamesFullUnits, "NamesSU": NamesShortUnits, "NamesS": NamesShort,
-        #                   "NamesGlobal": NFull,
-        #                   "NamesGlobalS": ["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]", "\\rho\\ [T/m^3]"],
-        #                   "DataUnits": "[km/s]", "DataName": "Phase\\ velocity\\ [km/s]", "DataAxis": "Periods\\ [s]"}
 
         # Always present
         NamesGlobal = ["Thickness\\ ", "s-Wave\\ velocity\\ ", "p-Wave\\ velocity\\ "]
@@ -754,26 +747,6 @@ class MODELSET:
 
             settingsSW = Masw.create_settings_dict(fmin=fmin, fmax=fmax, vmin=vmin, vmax=vmax, nvel=nvel, vspace=vspace,
                                                    weighting=fdbf_weighting, steering=fdbf_steering)
-
-        # base_kwargs = {
-        #     'model': None,  # placeholder for lambda
-        #     'xReceivers': xReceivers,
-        #     'settingsSW': settingsSW,
-        #     'showIm': False,
-        #     'returnAxis': False,
-        #     'add_noise_coherent': add_noise_coherent
-        # }
-        #
-        # if rho_fixed:
-        #     base_kwargs.update({'rho_fixed': True, 'rho_val': rho_val})
-        # if Q:
-        #     base_kwargs.update({'Q': True, 'Qalphas_fixed': Qalphas_fixed})
-        # else:
-        #     base_kwargs.update({'Q': False})
-        #
-        # forwardFun = lambda model: ForwardFWIMAGE(**{**base_kwargs, 'model': model, 'nLayer': nLayer, 'freqCalc': freq,
-        #                                              'source': source, 'source_sw': source_sw, 'options': options,
-        #                                              'Tacq': Tacq, 'dt': dt})
 
         if rho_fixed:
             if Q:
@@ -2567,7 +2540,7 @@ def IPR(MODEL: MODELSET, Dataset=None, NoiseEstimate=None, Parallelization: list
         - Postbel (POSTBEL): a POSTBEL class object containing the last posterior model space.
         - PrebelInit (PREBEL): a PREBEL class object containing the initial prior model space.
         - statsReturn (list - optional): a list containing the statistics at the different
-                                         iterations. The statistics are contained in a 
+                                         iterations. The statistics are contained in a
                                          StatsResults class object. This argument is only
                                          outputted if the stats input is set to *True*.
     '''
