@@ -1,0 +1,6 @@
+# all in microseconds
+id,cable,side,turns,current,rampOFF
+1,8,2.00,1,1,0.21
+2,25,6.25,1,1,0.44
+3,50,12.50,1,1,0.80
+4,100,25.00,1,1,1.30
