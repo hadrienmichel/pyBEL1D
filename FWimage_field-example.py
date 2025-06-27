@@ -114,7 +114,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         from swprocess.wavefieldtransforms import SlantStack, FK, FDBF, PhaseShift
         from matplotlib.pyplot import GridSpec
 
-        path = 'C:/Users/anso_/PycharmProjects/pyBEL1D/pyBEL1D-v1.0.1/hadrienmichel-pyBEL1D-b732482/real_data/'
+        path = 'YOURPATH'
 
         # Create COMPOSTI options:
         options = np.zeros(4, dtype=np.int32)
