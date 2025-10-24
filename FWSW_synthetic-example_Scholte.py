@@ -119,7 +119,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         from matplotlib.pyplot import GridSpec
         from scipy.interpolate import RegularGridInterpolator
 
-        path = YOURPATH
+        path = 'YOURPATH'
 
 
         # Create COMPOSTI options:
