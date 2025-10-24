@@ -200,11 +200,13 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ModelsetImage = BEL1D.MODELSET.DC_FW_image(prior=prior, priorDist='Uniform', priorBound=None,
                                                    fMaxCalc=fMax, fMaxImage=fMaxImage, vMax=vMax, xReceivers=xReceivers,
                                                    source_sw=source_sw, Tacq=Tacq, settingsSW=settings,
+                                                   Q=False, Qalphas_fixed=False,
                                                    rho_fixed=True, rho_val=2500, propagate_noise=True)#, add_noise_coherent=False)
 
         dataModel, fSyn, vSyn, u_z_time_cpp_Levin = BEL1D.ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
                                                                          xReceivers=xReceivers, source=source, source_sw=source_sw,
                                                                          options=options, Tacq=Tacq, dt=dt, settingsSW=settings,
+                                                                         normalization='frequency-maximum', Q=False, Qalphas_fixed=False,
                                                                          showIm=True, returnAxis=True, rho_fixed=True, rho_val=2500,
                                                                          return_raw=True)#, add_noise=1e-9)#, add_noise_coherent=False)
 
