@@ -24,6 +24,7 @@ from .utilities.KernelDensity import KDE
 
 # Importing common libraries
 import numpy as np  # For common matrix operations
+import subprocess
 import math as mt  # Common mathematical functions
 import matplotlib  # For graphical outputs
 from matplotlib import pyplot  # For matlab-like graphs
@@ -37,6 +38,9 @@ from functools import partial  # For building parallelizable functions
 import time  # For CPU time measurements
 from numpy import random  # For random sampling
 from typing import Callable  # For typing of functions in calls
+import platform
+import psutil
+
 
 # Forward models:
 try:
@@ -51,6 +55,7 @@ from composti.src.utils import create_frequencyvector, create_timevector, conver
 from swprocess import Sensor1C, Source, Array1D, Masw
 from swprocess.wavefieldtransforms import SlantStack, FK, FDBF, PhaseShift
 
+from scipy.interpolate import RegularGridInterpolator
 '''
 In order for parallelization to work efficiently for different type of forward models,
 some functions are requiered:
@@ -85,7 +90,7 @@ def ForwardParallelFun(Model, function, nbVal):
 
 
 def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, options,
-                   Tacq, dt, settingsSW, showIm: bool = False, returnAxis: bool = False,
+                   Tacq, dt, settingsSW, normalization: str = 'frequency-maximum', showIm: bool = False, returnAxis: bool = False,
                    rho_fixed: bool = False, rho_val: float = 1800.0,
                    Q: bool = False, Qalphas_fixed: bool = False,
                    return_raw: bool = False, add_noise=None,
@@ -183,7 +188,7 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
 
     # coherent noise can be added to, e.g., simulate a sound wave
     if add_noise_coherent is True:
-        u_z_time_cpp_Levin_soundwave = np.loadtxt('u_z_time_cpp_Levin_soundwave.txt')
+        u_z_time_cpp_Levin_soundwave = np.loadtxt('u_z_time_cpp_Levin_soundwave_100Hz.txt')
         # choose amplitude of noise
         u_z_time_cpp_Levin += np.divide(u_z_time_cpp_Levin_soundwave, 100)
 
@@ -198,7 +203,11 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
 
     # choose between 'absolute-maximum' (similar to "spectrum power" in geopsy)
     # or 'frequency-maximum' (similar to "maximum beam power" in geopsy, used for synthetic tests)
-    wavefieldTransform.normalize(by='frequency-maximum')
+
+    if normalization == 'absolute-maximum':
+        wavefieldTransform.normalize(by='absolute-maximum')
+    else:
+        wavefieldTransform.normalize(by='frequency-maximum')
 
     Upf = wavefieldTransform.power
 
@@ -216,7 +225,7 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
         fig = plt.figure(figsize=(7.0, 5.0))
         ax = fig.add_subplot(111)
         for rec in range(len(xReceivers)):
-            uzTimeNorm = u_z_time_cpp_Levin[:, rec] * (0.6 / np.max(abs(u_z_time_cpp_Levin[:, rec]))) * min_rec_distance
+            uzTimeNorm = u_z_time_cpp_Levin[:, rec] * (0.6 / np.max(abs(u_z_time_cpp_Levin[:, rec]))) * min_rec_distance # here traces are normalized trace by trace
             ax.plot(xReceivers[rec] + uzTimeNorm, timeVec, '-k')
         ax.grid('on')
         ax.axis('tight')
@@ -249,6 +258,353 @@ def ForwardFWIMAGE(model, nLayer, freqCalc, xReceivers, source, source_sw, optio
     if returnAxis:
         return Upf.flatten(), freq, vel
     return Upf.flatten()
+
+
+def model_to_layers(thicknesses, vp, vs, rho=None, qp=None, qs=None, halfspace=True):
+    """
+    Converts layer model parameters into a list of layers for write_msfk_input,
+    automatically adding a bottom halfspace if `halfspace=True`.
+
+    Parameters:
+    - thicknesses: array of thicknesses of each layer (length n)
+    - vp, vs: array of n+1 interface values
+    - rho, qp, qs: optional arrays or scalars of length n+1
+    - halfspace: whether to append an infinite bottom layer
+
+    Returns:
+    - layers: list of (depth_top, vp, vs, rho, qp, qs)
+    """
+
+    n_layers = len(thicknesses)
+
+    # Shape checks
+    if len(vp) != n_layers + 1:
+        raise ValueError(f"vp must have {n_layers + 1} elements, got {len(vp)}")
+    if len(vs) != n_layers + 1:
+        raise ValueError(f"vs must have {n_layers + 1} elements, got {len(vs)}")
+
+    def get_array(arr, default, name):
+        """If None, fill with default value; else check size."""
+        if arr is None:
+            return np.full(len(vp), default, dtype=float)
+        arr = np.asarray(arr, dtype=float)
+        if len(arr) != len(vp):
+            raise ValueError(f"{name} length mismatch: expected {len(vp)}, got {len(arr)}")
+        return arr
+
+    rho = get_array(rho, 2.0, "rho")
+    qp = get_array(qp, 150, "qp")
+    qs = get_array(qs, 150, "qs")
+
+    # Ensure arrays are float for modification
+    vs = np.asarray(vs, dtype=float)
+    vp = np.asarray(vp, dtype=float)
+    qs = np.asarray(qs, dtype=float)
+
+    # Top water layer fix
+    vs[0] = 0.0
+    qs[0] = 0.0
+
+    # Compute depths at layer tops (in meters)
+    depths = np.insert(np.cumsum(thicknesses), 0, 0.0)
+
+    layers = []
+    # Water layer top & bottom
+    layers.append((depths[0], vp[0], vs[0], rho[0], qp[0], qs[0]))
+    layers.append((depths[1], vp[0], vs[0], rho[0], qp[0], qs[0]))
+
+    # Remaining layers
+    for i in range(1, n_layers):
+        layers.append((depths[i], vp[i], vs[i], rho[i], qp[i], qs[i]))
+        layers.append((depths[i + 1], vp[i], vs[i], rho[i], qp[i], qs[i]))
+
+    # Halfspace at the end
+    if halfspace:
+        layers.append((depths[-1], vp[-1], vs[-1], rho[-1], qp[-1], qs[-1]))
+
+    return layers
+
+def calc_source_depth(model, nLayer):
+    """
+    Calculate the source depth as half the water layer thickness.
+    """
+    n_layers = nLayer - 1
+
+    thicknesses = model[0:n_layers]  # n_layers elements
+    vs = model[n_layers : n_layers + nLayer]  # nLayer = n_layers + 1
+    vp = model[n_layers + nLayer : n_layers + 2*nLayer]  # nLayer = n_layers + 1
+
+    layers = model_to_layers(thicknesses, vp, vs)
+
+    # Use the first layer thickness
+    water_thickness = thicknesses[0]
+    return 0.5 * water_thickness
+
+
+def calc_receiver_depth(model, nLayer):
+    """
+    Calculate the receiver depth: top of first solid layer (below water).
+    """
+    n_layers = nLayer - 1
+
+    thicknesses = model[0:n_layers]
+    vs = model[n_layers : n_layers + nLayer]
+    vp = model[n_layers + nLayer : n_layers + 2*nLayer]
+
+    # Optional: check consistency
+    layers = model_to_layers(thicknesses, vp, vs)
+
+    # Receiver usually sits at seabed: end of water layer
+    water_thickness = thicknesses[0]
+
+    return water_thickness
+
+
+
+def write_msfk_input(source_depth, receiver_depth,
+        freq_range,  # (start, end, step)
+        slow_range,  # (start, end, step)
+        q_artif, sw_fp_files=(1, 1),
+        fp_files=('ms.fz', 'ms.fr'),
+        vp_vs_ro_res=(1.0, 1.0, 5.0),
+        sw_filter=0,
+        layers=[], # model=None, # rho=None, qp=None, qs=None,
+        filename='msfk08.inp'
+):
+
+    with open(filename, 'w') as f:
+        f.write(f"""# Auto-generated input
+    # This is the input file of FORTRAN77 program "mseisfk" for calculation of synthetic
+    # seismograms (fk-spectra) based on a layered halfspace earth model
+    #
+    # Last modified: Potsdam, Aug 22, 2008
+    #
+    #	SOURCE PARAMETERS
+    #	=================
+    # 1. source depth [km] (in water!)
+    #-----------------------------------------------------------------------------------------
+      {source_depth:.3f}                           |dble: s_depth;
+    #-----------------------------------------------------------------------------------------
+    #
+    #	RECEIVER PARAMETERS
+    #	===================
+    # 1. receiver depth [km] (Note 1)
+    # 2. frequency [hz] sampling: f_start (f1), f_end (f2), f_step (df)
+    # 3. slowness [s/km] sampling: s_start (s1), s_end (s2), s_step (ds)
+    # 4. Q value for artificial wave attenuation (if <= 0, no artificial attenuation)
+    #    (optional parameter for blunting the normal mode spikes)
+    #----------------------------------------------------------------------------------------- 
+      {receiver_depth:.3f}                            |dble: r_depth;
+      {freq_range[0]:.3f}  {freq_range[1]:.3f}  {freq_range[2]:.3f}                |dble: f_start, f_end, f_step;
+      {slow_range[0]:.3f}  {slow_range[1]:.3f}  {slow_range[2]:.3f}                |dble: s_start, s_end, s_step;
+      {q_artif:.1f}                              |dble: q_artif;
+    #-----------------------------------------------------------------------------------------
+    #
+    #	OUTPUT FILES
+    #	============
+    # 1. switchs for existence of spectrum files: vertical component (pressure, if hydrophone),
+    #    and radial component
+    # 2. file names of the two spectra (one line pro slowness, one column pro frequency)
+    #-----------------------------------------------------------------------------------------
+      {sw_fp_files[0]}       {sw_fp_files[1]}                       |int: sw_fp_files(2);
+     '{fp_files[0]}','{fp_files[1]}'             |char: fp_files(2);
+     #-----------------------------------------------------------------------------------------
+    #
+    #	GLOBAL MODEL PARAMETERS
+    #	=======================
+    # 1. switch for filtering the free surface reflection
+    # 2. gradient resolution [%] of vp, vs, and ro (density) (Note 2)
+    # 3. number of data lines of the layered model
+    #-----------------------------------------------------------------------------------------
+      {sw_filter}                               |int: sw_filtering_free_surface;
+      {vp_vs_ro_res[0]:.1f}  {vp_vs_ro_res[1]:.1f}  {vp_vs_ro_res[2]:.1f}         |dble: vp_res, vs_res, ro_res;
+      {len(layers)}                               |int: no_model_lines;
+    #-----------------------------------------------------------------------------------------
+    #
+    #	MULTILAYERED MODEL PARAMETERS
+    #	=============================
+    # no  depth[km]    vp[km/s]     vs[km/s]  ro[g/cm^3]  qp        qs
+    #-----------------------------------------------------------------------------------------""")
+
+        for i, (depth, vp, vs, ro, qp, qs) in enumerate(layers, 1):
+            f.write(f"""
+                 {i}  {depth:.3f}   {vp:.3f}  {vs:.3f}   {ro:.3f}   {qp:.1f}   {qs:.1f}""")
+
+        f.write("""
+    #----------------------------------end of input-------------------------------------------
+    # Note 1:
+    #
+    # The receiver is assumed to be a hydrophone, if the receiver depth is smaller than the
+    # thickness of the water layer. In this case, the pressure spectra are calculated.
+    # Otherwise, geophone receivers are assumed and the velocity spectra are calculated.
+    #
+    # Note 2:
+    #
+    # Layers with a constant gradient of seismic parameters will be discretized with a number of
+    # homogeneous sublayers. The gradient resolution parameters are used to define the maximum
+    # allowed thickness of the sublayers. If the resolutions of Vp, Vs and Rho (density) require
+    # different thicknesses, the smallest is first chosen. If this is even smaller than 1% of the
+    # characteristic wavelength, then the latter is finally taken for the sublayer thickness.
+    """)
+
+def run_msfk(exe_path='mseisfk08.exe', cwd='.'):
+    result = subprocess.run([exe_path], input='msfk08.inp\n', text=True, capture_output=True, shell=True, cwd=cwd)
+    return result
+
+def read_spectrum_file(filepath):
+    data = []
+    with open(filepath, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            try:
+                row = [float(val) for val in parts]
+                data.append(row)
+            except ValueError:
+                continue  # skip headers or non-numeric lines
+    return np.array(data)
+
+
+def ForwardMSEISFK(model, nLayer, fmin, fmax, nf, vmin, vmax, nvel, path,
+                   source_depth, receiver_depth, q_artif=0,
+                   showIm: bool = False, returnAxis: bool = False, return_raw:bool = False):
+
+    """
+    Forward modeling using MSEISFK Fortran solver.
+    Runs FK-spectra modeling for underwater (or layered halfspace) models.
+
+    Parameters:
+    ----------
+    model : np.ndarray
+        Flat array: [Thicknesses, Vp, Vs]. Length must be 3*nLayer - 1.
+    nLayer : int
+        Number of layers.
+    fmin, fmax, nf : float
+        Frequency range (start, end, step).
+    vmin, vmax, nvel : float
+        Velocity range for output grid.
+    path : str
+        Directory path where mseisfk is executed and input/output files are located.
+    source_depth, receiver_depth : float
+        Source and receiver depths [km].
+    q_artif : float
+        Artificial Q for attenuation.
+    showIm : bool
+        Whether to plot dispersion image.
+    returnAxis : bool
+        If True, return frequency and velocity axes as well.
+
+    Returns:
+    -------
+    Upf.flatten() or (Upf.flatten(), freq, vel)
+    """
+
+    ###### 1. Convert model to layers
+    # Thickness: (nLayer - 1)
+    idx = 0
+    # Thickness: (nLayer - 1)
+    Thickness = model[idx:idx + nLayer - 1]
+    idx += nLayer - 1
+
+    # Vs: nLayer
+    Vs = model[idx:idx + nLayer]
+    idx += nLayer
+
+    # Vp: nLayer
+    Vp = model[idx:idx + nLayer]
+    idx += nLayer
+
+    # Optional parameters
+    rho = None
+    if len(model) >= idx + nLayer:
+        rho = model[idx:idx + nLayer]
+        idx += nLayer
+
+    Qalphas = None
+    if len(model) >= idx + nLayer:
+        Qalphas = model[idx:idx + nLayer]
+        idx += nLayer
+
+    Qbetas = None
+    if len(model) >= idx + nLayer:
+        Qbetas = model[idx:idx + nLayer]
+        idx += nLayer
+
+    # Create layer model
+    layers = model_to_layers(thicknesses=Thickness, vp=Vp, vs=Vs,
+                             rho=rho, qp=Qalphas, qs=Qbetas)
+    print("layers:", layers)
+
+    ###### 2. Frequencies and slowness range
+    freq_range = (fmin, fmax, nf)
+    frequency = np.arange(fmin, fmax + nf, nf)
+
+    vel_range = np.linspace(vmin, vmax, nvel)
+    slowness_range_kms = 1000.0 / vel_range
+    slow_start = np.min(slowness_range_kms)
+    slow_end = np.max(slowness_range_kms)
+    slow_step = abs((slow_end - slow_start) / (nvel - 1))
+    slow_range = (slow_start, slow_end, slow_step)
+    slowness = np.arange(slow_start, slow_end + slow_step, slow_step)
+
+    ###### 3. Write input file
+    write_msfk_input(
+        source_depth=source_depth, receiver_depth=receiver_depth,
+        freq_range=freq_range, slow_range=slow_range,
+        q_artif=q_artif, layers=layers,
+        filename=f"{path}/msfk08.inp"
+    )
+
+    ###### 4. Run mseisfk
+    res = run_msfk(cwd=path)
+    print(res.stdout)
+    print(res.stderr)
+
+    ###### 5. Read output spectra
+    fr = read_spectrum_file(f"{path}/ms.fr")  # radial component
+    fr_ = fr[1:, 1:]
+    fr_norm = fr_ / np.max(fr_)
+
+    if fr_norm.shape != (len(slowness), len(frequency)):
+        slowness = slowness[:fr_norm.shape[0]]
+        frequency = frequency[:fr_norm.shape[1]]
+
+    interp_func = RegularGridInterpolator(
+        (slowness, frequency), fr_norm, bounds_error=False, fill_value=0.0
+    )
+
+    ###### 6. Interpolate to phase velocity domain
+    velocity_new = np.linspace(vmin, vmax, nvel)
+    slowness_new = 1000.0 / velocity_new
+
+    S_new, F_new = np.meshgrid(slowness_new, frequency, indexing='ij')
+    points = np.stack([S_new.ravel(), F_new.ravel()], axis=-1)
+
+    Upf = interp_func(points).reshape(S_new.shape)
+
+    ###### 7. Plot if needed
+    if showIm:
+        fig, ax = plt.subplots(figsize=(7, 5))
+        ax.imshow(Upf, aspect='auto', origin='lower',
+                  extent=(frequency[0], frequency[-1], velocity_new[0], velocity_new[-1]),
+                  interpolation='bilinear', cmap='gist_rainbow')
+        ax.set_xlabel('Frequency [Hz]', fontsize=14)
+        ax.set_ylabel('Phase velocity [m/s]', fontsize=14)
+        ax.tick_params(axis='both', which='major', labelsize=14)
+        fig.tight_layout()
+        plt.show(block=True)
+
+    ###### 8. Return
+    if return_raw:
+        if returnAxis:
+            return Upf.flatten(), frequency, velocity_new, None
+        else:
+            return Upf.flatten(), None
+    else:
+        if returnAxis:
+            return Upf.flatten(), frequency, velocity_new
+        else:
+            return Upf.flatten()
+
 
 
 def ForwardSNMR(Model, nlay=None, K=None, zvec=None, t=None):
@@ -465,6 +821,11 @@ class MODELSET:
             vp = model[2 * nLayer - 1:3 * nLayer - 1]
             vs = model[nLayer - 1:2 * nLayer - 1]
             ratio = 1 / 2 * (np.power(vp, 2) - 2 * np.power(vs, 2)) / (np.power(vp, 2) - np.power(vs, 2))
+            if np.any(np.isnan(ratio)) or np.any(np.isinf(ratio)):
+                print("⚠️ Numerical issue in PoissonRatio:")
+                print("Vp:", vp)
+                print("Vs:", vs)
+                print("Ratio:", ratio)
             return ratio
 
         RatioMin = [0.2] * nLayer
@@ -557,9 +918,9 @@ class MODELSET:
 
     @classmethod
     def DC_FW_image(cls, prior=None, priorDist: str = 'Uniform', priorBound=None, settingsSW=None, fMaxCalc=100,
-                    fMaxImage=50, vMax=1500, xReceivers=None, source_sw=None, Tacq=0.3, rho_fixed: bool = False,
+                    xReceivers=None, source_sw=None, Tacq=0.3, rho_fixed: bool = False,
                     rho_val: float = 1800.0, Q: bool = False, Qalphas_fixed: bool = True, propagate_noise: bool = False,
-                    add_noise_coherent: bool = False):
+                    add_noise_coherent: bool = False, normalization:str = None):
         """
         Constructs a forward modeling setup for surface wave analysis using a wavefield transform method (FK, FDBF, ...)
 
@@ -575,10 +936,6 @@ class MODELSET:
             Settings for surface wave (SW) imaging (frequency range, velocity limits, etc.).
         fMaxCalc : float, default=100
             Maximum frequency (Hz) for synthetic signal calculation.
-        fMaxImage : float, default=50
-            Maximum frequency (Hz) used in the f-k image construction.
-        vMax : float, default=1500
-            Maximum phase velocity (m/s) considered in dispersion image.
         xReceivers : np.ndarray, optional
             Array of receiver positions in meters.
         source_sw : Source, optional
@@ -722,7 +1079,7 @@ class MODELSET:
         # Create COMPOSTI format source
         source_generator = SourceFunctionGenerator(freq)
         # only one peak frequency:
-        source = source_generator.Ricker(1, 20)  # (amplitude, frequency)
+        source = source_generator.Ricker(1, 80)  # (amplitude, frequency)
         ## two peak frequencies
         # source = source_generator.RickerBis(1, 20, 40)
 
@@ -780,16 +1137,29 @@ class MODELSET:
                                                                   return_raw=return_raw,
                                                                   add_noise_coherent=True)
                     else:
-                        forwardFun = lambda model: ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
-                                                                  xReceivers=xReceivers, source=source,
-                                                                  source_sw=source_sw,
-                                                                  options=options, Tacq=Tacq,
-                                                                  dt=dt, settingsSW=settingsSW, showIm=False,
-                                                                  returnAxis=False,
-                                                                  rho_fixed=True, rho_val=rho_val, Q=True,
-                                                                  Qalphas_fixed=False,
-                                                                  return_raw=return_raw,
-                                                                  add_noise_coherent=False)
+                        if normalization == 'absolute-maximum':
+                            forwardFun = lambda model: ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
+                                                                      xReceivers=xReceivers, source=source,
+                                                                      source_sw=source_sw,
+                                                                      options=options, Tacq=Tacq,
+                                                                      normalization='absolute-maximum',
+                                                                      dt=dt, settingsSW=settingsSW, showIm=False,
+                                                                      returnAxis=False,
+                                                                      rho_fixed=True, rho_val=rho_val, Q=True,
+                                                                      Qalphas_fixed=False,
+                                                                      return_raw=return_raw,
+                                                                      add_noise_coherent=False)
+                        else:
+                            forwardFun = lambda model: ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
+                                                                      xReceivers=xReceivers, source=source,
+                                                                      source_sw=source_sw,
+                                                                      options=options, Tacq=Tacq,
+                                                                      dt=dt, settingsSW=settingsSW, showIm=False,
+                                                                      returnAxis=False,
+                                                                      rho_fixed=True, rho_val=rho_val, Q=True,
+                                                                      Qalphas_fixed=False,
+                                                                      return_raw=return_raw,
+                                                                      add_noise_coherent=False)
             else:
                 if add_noise_coherent:
                     forwardFun = lambda model: ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
@@ -899,6 +1269,233 @@ class MODELSET:
                    return_raw=return_raw, options=options_WF_transform)
 
 
+    @classmethod
+    def DC_FW_image_bis(cls, prior=None, priorDist: str = 'Uniform', priorBound=None, settingsSW=None, fMaxCalc=100,
+              xReceivers=None, source_sw=None, Tacq=0.3, rho_fixed: bool = False,
+              rho_val: float = 1800.0, Q: bool = False, Qalphas_fixed: bool = True, propagate_noise: bool = False,
+              add_noise_coherent: bool = False, waterlayer: bool = False, model=None, nLayer=None, fmin=None, fmax=None,
+                        nf=None, vmin=None, vmax=None, nvel=None, path=None, source_depth=None, receiver_depth=None,
+                        q_artif=None, returnAxis:bool = False):
+        """
+       Same as DC_FW_image but with the possibility to include a water layer.
+        If waterlayer=True, uses ForwardMSEISFK. Else uses ForwardFWIMAGE.
+        """
+
+        if prior is None:
+            if rho_fixed:
+                prior = np.array(
+                    [[0.0025, 0.0075, 0.002, 0.1, 0.05, 0.5], [0, 0, 0.1, 0.5, 0.3, 0.8]])
+            else:
+                prior = np.array(
+                    [[0.0025, 0.0075, 0.002, 0.1, 0.05, 0.5, 1.0, 3.0], [0, 0, 0.1, 0.5, 0.3, 0.8, 1.0, 3.0]])
+        if xReceivers is None:
+            xReceivers = np.arange(3, 30 + 3, 3).astype(np.float64)
+        else:
+            xReceivers = xReceivers.astype(np.float64)
+        if propagate_noise:
+            return_raw = True
+        else:
+            return_raw = False
+        if source_sw is None:
+            source_sw = Source(x=0, y=0, z=0)
+
+        nLayer, nParam = prior.shape
+        nParam /= 2
+        nParam = int(nParam)
+        # prior = np.multiply(prior,np.matlib.repmat(np.array([1/1000, 1/1000, 1, 1, 1, 1, 1, 1]),nLayer,1))
+        ListPrior = [None] * ((nLayer * nParam) - 1)  # Half space at bottom
+        print("Number of priors defined:", len(ListPrior))
+        NamesFullUnits = [None] * ((nLayer * nParam) - 1)  # Half space at bottom
+        NamesShort = [None] * ((nLayer * nParam) - 1)  # Half space at bottom
+        NamesShortUnits = [None] * ((nLayer * nParam) - 1)  # Half space at bottom
+        Mins = np.zeros(((nLayer * nParam) - 1,))
+        Maxs = np.zeros(((nLayer * nParam) - 1,))
+
+        # Initialize lists with basic parameters
+        Units = ["\\ [km]", "\\ [km/s]", "\\ [km/s]"]
+        NFull = ["Thickness\\ ", "s-Wave\\ velocity\\ ", "p-Wave\\ velocity\\ "]
+        NShort = ["th_{", "Vs_{", "Vp_{"]
+
+        # Add Q if enabled
+        if Q:
+            Units.append("\\ [-]")  # Qbeta (or other Q component)
+            NFull.append("Q\\ beta\\ ")
+            NShort.append("Qbeta_{")
+
+            if not Qalphas_fixed:
+                Units.append("\\ [-]")  # Add second Q parameter only if alphas are not fixed
+                NFull.append("Q\\ alpha\\ ")
+                NShort.append("Qalpha_{")
+
+        # Add density if not fixed
+        if not rho_fixed:
+            Units.append("\\ [T/m^3]")
+            NFull.append("Density\\ ")
+            NShort.append("\\rho_{")
+
+        # Update number of parameters based on label definitions
+        nParam = len(NFull)
+
+        expected_columns = nParam * 2
+
+        if prior.shape[1] != expected_columns:
+            print("ERROR: The 'prior' does not match the number of model parameters!")
+            print(f"Number of layers: {nLayer}")
+            print(f"Flags: Q={Q}, Qalphas_fixed={Qalphas_fixed}, rho_fixed={rho_fixed}")
+            print(f"Expected number of parameters: {nParam}")
+            print(f"Expected prior shape: ({nLayer}, {expected_columns})")
+            print(f"Actual prior shape: {prior.shape}")
+            raise ValueError(
+                f"The 'prior' matrix must have {expected_columns} columns "
+                f"but it has {prior.shape[1]}. "
+                "Check that you have defined priors for all model parameters "
+                "(e.g., Qs, Qp, or rho if they are enabled)."
+            )
+
+        ident = 0
+        for j in range(nParam):
+            for i in range(nLayer):
+                if not ((i == nLayer - 1) and (j == 0)):  # Not the half-space thickness
+                    if priorDist == 'Uniform':
+                        ListPrior[ident] = stats.uniform(loc=prior[i, j * 2],
+                                                         scale=prior[i, j * 2 + 1] - prior[i, j * 2])
+                        Mins[ident] = prior[i, j * 2]
+                        Maxs[ident] = prior[i, j * 2 + 1]
+                    elif priorDist == 'Gaussian':
+                        ListPrior[ident] = stats.norm(loc=prior[i, j * 2],
+                                                      scale=prior[i, j * 2 + 1])
+                        if priorBound is not None:
+                            Mins[ident] = priorBound[i, j * 2]
+                            Maxs[ident] = priorBound[i, j * 2 + 1]
+                    NamesFullUnits[ident] = NFull[j] + str(i + 1) + Units[j]
+                    NamesShortUnits[ident] = NShort[j] + str(i + 1) + "}" + Units[j]
+                    NamesShort[ident] = NShort[j] + str(i + 1) + "}"
+                    ident += 1
+        method = "DC_FW_image"
+
+        # Always present
+        NamesGlobal = ["Thickness\\ ", "s-Wave\\ velocity\\ ", "p-Wave\\ velocity\\ "]
+        NamesGlobalS = ["Depth\\ [km]", "Vs\\ [km/s]", "Vp\\ [km/s]"]
+
+        # Add Q-related global names if Q is enabled
+        if Q:
+            NamesGlobal.append("Q\\ beta\\ ")
+            NamesGlobalS.append("Qbeta\\ [-]")
+            if not Qalphas_fixed:
+                NamesGlobal.append("Q\\ alpha\\ ")
+                NamesGlobalS.append("Qalpha\\ [-]")
+
+        # Add density only if not fixed
+        if not rho_fixed:
+            NamesGlobal.append("Density\\ ")
+            NamesGlobalS.append("\\rho\\ [T/m^3]")
+
+        paramNames = {
+            "NamesFU": NamesFullUnits,
+            "NamesSU": NamesShortUnits,
+            "NamesS": NamesShort,
+            "NamesGlobal": NamesGlobal,
+            "NamesGlobalS": NamesGlobalS,
+            "DataUnits": "[km/s]",
+            "DataName": "Phase\\ velocity\\ [km/s]",
+            "DataAxis": "Periods\\ [s]"
+        }
+
+        freq, dt = create_frequencyvector(T_end=Tacq, f_max_requested=fMaxCalc, f_min_requested=0.1)
+        source_generator = SourceFunctionGenerator(freq)
+        source = source_generator.Ricker(1, 20)
+
+        options = np.zeros(4, dtype=np.int32)
+        options[0] = 1
+        options[1] = 1
+        options[2] = 0
+        options[3] = 1
+
+        if settingsSW is None:
+            fmin, fmax = 5, 100
+            vmin, vmax, nvel, vspace = 100, 1000, 400, "linear"
+            fdbf_weighting = "sqrt"
+            fdbf_steering = "cylindrical"
+            settingsSW = Masw.create_settings_dict(fmin=fmin, fmax=fmax, vmin=vmin, vmax=vmax, nvel=nvel, vspace=vspace,
+                                                   weighting=fdbf_weighting, steering=fdbf_steering)
+
+        # added if water layer:
+        if waterlayer:
+            forwardFun = lambda model: ForwardMSEISFK(model=model, nLayer=nLayer, fmin=fmin, fmax=fmax,
+                                                     nf=nf, vmin=vmin, vmax=vmax, nvel=nvel, path=path,
+                                                     source_depth=calc_source_depth(model, nLayer), receiver_depth=calc_receiver_depth(model, nLayer),
+                                                     q_artif=q_artif, showIm=False, returnAxis=False, return_raw=False)
+            method = "forward_mseisfk"
+        else:
+            forwardFun = lambda model: ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
+                                                      xReceivers=xReceivers, source=source, source_sw=source_sw,
+                                                      options=options, Tacq=Tacq, dt=dt, settingsSW=settingsSW,
+                                                      showIm=False, returnAxis=False,
+                                                      rho_fixed=rho_fixed, rho_val=rho_val,
+                                                      Q=Q, Qalphas_fixed=Qalphas_fixed,
+                                                      return_raw=return_raw,
+                                                      add_noise_coherent=add_noise_coherent)
+            method = "DC_FW_image"
+
+        forward = {"Fun": forwardFun, "Axis": freq}
+
+
+        def PoissonRatio(model, nLayer=2):
+            """
+            Compute Poisson ratio per layer safely.
+            Assumes model layout: [thicknesses, Vs, Vp, (optional others...)]
+            """
+            th_len = nLayer - 1
+            vs = np.asarray(model[th_len:th_len + nLayer], dtype=float)
+            vp = np.asarray(model[th_len + nLayer:th_len + 2 * nLayer], dtype=float)
+
+            vp2 = vp ** 2
+            vs2 = vs ** 2
+            denom = vp2 - vs2
+            ratio = np.empty_like(vp)
+
+            small_mask = np.abs(denom) < 1e-12
+            water_mask = (vs == 0.0) | small_mask
+            ratio[water_mask] = 0.5  # fluid or degenerate
+            ok_mask = ~water_mask
+            ratio[ok_mask] = 0.5 * (vp2[ok_mask] - 2 * vs2[ok_mask]) / denom[ok_mask]
+            ratio = np.clip(ratio, -1.0, 0.6)
+            return ratio
+
+            # Define Poisson ratio limits
+
+        RatioMin = 0.1
+        RatioMax = 0.6
+
+        if waterlayer:
+            # --- Condition with water layer: skip Poisson check for water (first) layer ---
+            if waterlayer:
+                cond = lambda model: (
+                        (np.logical_and(model >= Mins, model <= Maxs)).all()
+                        and np.all(
+                    (PoissonRatio(model, nLayer)[1:] >= RatioMin)
+                    & (PoissonRatio(model, nLayer)[1:] <= RatioMax)
+                )
+                )
+            else:
+                cond = lambda model: (
+                        (np.logical_and(model >= Mins, model <= Maxs)).all()
+                        and np.all(
+                    (PoissonRatio(model, nLayer) >= RatioMin)
+                    & (PoissonRatio(model, nLayer) <= RatioMax)
+                )
+                )
+
+        options_WF_transform = {'xReceivers': xReceivers,
+                                'dt': dt,
+                                'settingsSW': settingsSW,
+                                'source_sw': source_sw}
+
+        return cls(prior=ListPrior, cond=cond, method=method, forwardFun=forward,
+                   paramNames=paramNames, nbLayer=nLayer, return_raw=return_raw,
+                   options=options_WF_transform)
+
+
 class PREBEL:
     """Object that is used to store the PREBEL elements:
 
@@ -928,7 +1525,7 @@ class PREBEL:
         - RAWDATA (np.ndarray): the raw data before potential transfrom
         - FORWARD (np.ndarray): the corresponding datasets with
                                 dimensions (nbModels * len(data))
-        - PCA (dict): a dictionnary containing the PCA reduction with
+        - PCA (dict): a dictionary containing the PCA reduction with
                       their mathematical descriptions:
             - 'Data': a sklearn.decompostion.PCA object with the PCA
                       decomposition for the data dimensions.
@@ -961,7 +1558,7 @@ class PREBEL:
         """The RUN method runs all the computations for the preparation of BEL1D
 
         It is an instance method that does not need any arguments.
-        Howerev, optional arguments are:
+        However, optional arguments are:
             - Parallelization (list): instructions for parallelization
                 - [False, ?]: no parallel runs
                 - [True, None]: parallel runs without pool provided
@@ -976,6 +1573,7 @@ class PREBEL:
             - verbose (bool): receive feedback from the code while it is running (True)
                               or not (False). The default is *False*.
         """
+        timeGlobalBegin = time.time()
         # 1) Sampling (if not done already):
         if verbose:
             print('Sampling the prior . . .')
@@ -994,15 +1592,21 @@ class PREBEL:
         indexCurr = 0
         while True:
             try:
+                output = self.MODPARAM.forwardFun["Fun"](self.MODELS[indexCurr, :])
                 if self.MODPARAM.return_raw:
-                    tmp, tmpRaw = self.MODPARAM.forwardFun["Fun"](self.MODELS[indexCurr,
-                                                                  :])  # The axes are never returned by the call to fowradFun (as stated in DC_FW_image)
+                    tmp, tmpRaw = output  # raw version, no axes
                 else:
-                    tmp = self.MODPARAM.forwardFun["Fun"](self.MODELS[indexCurr, :])
+                    if isinstance(output, tuple):
+                        tmp = output[0]
+                        self.frequency = output[1]
+                        self.velocity = output[2]
+                    else:
+                        tmp = output
+                tmp = tmp.flatten()  # always flatten the forward array
                 break
             except:
                 indexCurr += 1
-                if indexCurr > self.nbModels:
+                if indexCurr >= self.nbModels:
                     raise Exception('The forward modelling failed!')
         self.FORWARD = np.zeros((self.nbModels, len(tmp)))
         if self.MODPARAM.return_raw:
@@ -1039,18 +1643,33 @@ class PREBEL:
                     print(f'Model {i} out of {self.nbModels} computed in {time.time() - timeIter:.2f} seconds.')
                     timeIter = time.time()
                 try:
+                    output = self.MODPARAM.forwardFun["Fun"](self.MODELS[i, :])
                     if self.MODPARAM.return_raw:
-                        self.FORWARD[i, :], self.RAWDATA[i, :, :] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i, :])
+                        tmp, tmpRaw = output
+                        tmp = tmp.flatten()
+                        self.RAWDATA[i, :, :] = tmpRaw
                     else:
-                        self.FORWARD[i, :] = self.MODPARAM.forwardFun["Fun"](self.MODELS[i, :])
-                except:
+                        if isinstance(output, tuple):
+                            tmp = output[0].flatten()
+                            self.frequency = output[1]
+                            self.velocity = output[2]
+                        else:
+                            tmp = output.flatten()
+                    self.FORWARD[i, :] = tmp
+                except Exception as e:
+                    print(f"Model {i} failed: {e}")
                     self.FORWARD[i, :] = [None] * len(tmp)
                     notComputed.append(i)
             # Getting the uncomputed models and removing them:
             self.MODELS = np.delete(self.MODELS, notComputed, 0)
             self.FORWARD = np.delete(self.FORWARD, notComputed, 0)
-            self.RAWDATA = np.delete(self.RAWDATA, notComputed, 0)
+            if self.MODPARAM.return_raw:
+                self.RAWDATA = np.delete(self.RAWDATA, notComputed, 0)
             newModelsNb = np.size(self.MODELS, axis=0)  # Get the number of models remaining
+
+            if newModelsNb == 0:
+                raise RuntimeError("All forward model runs failes. No valid models remaining.")
+
             timeEnd = time.time()
             if verbose:
                 print('The Unparallelized Forward Modelling took {} seconds.'.format(timeEnd - timeBegin))
@@ -1069,9 +1688,17 @@ class PREBEL:
             self.FORWARD = np.delete(self.FORWARD, np.where(isOutlier), 0)
             newModelsNb = np.size(self.FORWARD, axis=0)  # Get the number of models remaining
             pass
+        # ---- REMOVE MODELS with NaN or inf ----
+        valid_rows = np.isfinite(self.FORWARD).all(axis=1)
+        n_removed = np.sum(~valid_rows)
+        if verbose:
+            print(f"{n_removed} models removed due to NaNs or infs in forward model!")
+        # Keep only valid ones
+        self.FORWARD = self.FORWARD[valid_rows, :]
+        self.MODELS = self.MODELS[valid_rows, :]
+        self.nbModels = self.FORWARD.shape[0]
         if verbose:
             print('{} models remaining after forward modelling!'.format(newModelsNb))
-        self.nbModels = newModelsNb
         # 3) PCA on data (and optionally model):
         if verbose:
             print('Reducing the dimensionality . . .')
@@ -1122,6 +1749,37 @@ class PREBEL:
         self.KDE.KernelDensity(RemoveOutlier=RemoveOutlier, Parallelization=Parallelization, verbose=verbose)
         if Parallelization[0] and terminatePool:
             pool.terminate()
+        # 6) run time:
+
+        if verbose:
+            total_runtime = time.time() - timeGlobalBegin
+            avg_time_per_model = total_runtime / self.nbModels if self.nbModels > 0 else float('nan')
+
+            machine_info = {
+                "OS": platform.system() + " " + platform.release(),
+                "CPU": platform.processor(),
+                "Cores (logical)": psutil.cpu_count(logical=True),
+                "Cores (physical)": psutil.cpu_count(logical=False),
+                "RAM (GB)": round(psutil.virtual_memory().total / (1024 ** 3), 2)
+            }
+
+            report_lines = [
+                               "--- Computational Cost Report ---",
+                               f"Total runtime: {total_runtime:.2f} seconds",
+                               f"Average time per model: {avg_time_per_model:.2f} seconds",
+                               f"Number of models computed: {self.nbModels}",
+                               "Machine info:"
+                           ] + [f"  {k}: {v}" for k, v in machine_info.items()] + ["---------------------------------"]
+
+            # Print to console
+            for line in report_lines:
+                print(line)
+
+            # Save to timestamped file
+            filename = f"computational_report_PREBEL_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(filename, "w") as f:
+                for line in report_lines:
+                    f.write(line + "\n")
 
     @classmethod
     def POSTBEL2PREBEL(cls, PREBEL, POSTBEL, Dataset=None, NoiseModel=None, Parallelization: list = [False, None],
@@ -1161,7 +1819,7 @@ class PREBEL:
         PrebelNew.FORWARD = np.append(PREBEL.FORWARD, POSTBEL.SAMPLESDATA, axis=0)
         PrebelNew.nbModels = np.size(PrebelNew.MODELS, axis=0)  # Get the number of sampled models
         # 3) PCA on data (and optionally model):
-        varRepresented = 0.90
+        varRepresented = 0.99
         if verbose:
             print('Reducing the dimensionality . . .')
         if reduceModels:
@@ -1222,6 +1880,117 @@ class PREBEL:
         if verbose:
             print('PREBEL object build!')
         return PrebelNew
+
+    @classmethod
+    def POSTBEL2PREBEL_with_new_forward(cls, POSTBEL, ModelsetNew,
+                                           Dataset=None, NoiseModel=None,
+                                           reduceModels=False, verbose=True):
+        """
+        Convert a POSTBEL object sampled with one forward normalization
+        into a PREBEL object using a new forward normalization.
+
+        Parameters
+        ----------
+        Postbel : BEL1D.POSTBEL
+            The posterior object to transform.
+        Modelset : BEL1D.MODELSET
+            A new forward modeller definition (e.g. absolute-maximum normalization).
+        Dataset : array, optional
+            Observed dataset, if available.
+        NoiseModel : list, optional
+            Noise model definition.
+        reduceModels : bool, optional
+            If True, apply PCA reduction to models. Default is False.
+        verbose : bool, optional
+            Print progress.
+
+        Returns
+        -------
+        PrebelNew : BEL1D.PREBEL
+            A new PREBEL object built from the posterior samples
+            but using the new forward normalization.
+        """
+
+        # 1. Copy posterior
+        from copy import deepcopy
+        PostbelCopy = deepcopy(POSTBEL)
+
+        # 2. Replace the forward model with the new one
+        PostbelCopy.MODPARAM = ModelsetNew
+        PostbelCopy.SAMPLESDATA = []  # reset previous synthetic data
+        PostbelCopy.DataPost()
+
+        # 3. Create new PREBEL
+        if verbose:
+            print("Building new PREBEL . . .")
+        PrebelNew = cls(ModelsetNew)
+        PrebelNew.MODELS = PostbelCopy.SAMPLES
+        PrebelNew.FORWARD = PostbelCopy.SAMPLESDATA
+        PrebelNew.nbModels = np.size(PrebelNew.MODELS,axis=0)
+
+        # 3) PCA on data (and optionally model):
+        varRepresented = 0.99
+        if verbose:
+            print('Reducing the dimensionality . . .')
+        if reduceModels:
+            pca_model = sklearn.decomposition.PCA(n_components=varRepresented)  # Keeping 90% of the variance
+            m_h = pca_model.fit_transform(PrebelNew.MODELS)
+            n_CompPCA_Mod = m_h.shape[1]
+            # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
+            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(
+                    n_components=n_CompPCA_Mod)  # Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
+            PrebelNew.PCA = {'Data': pca_data, 'Model': pca_model}
+        else:
+            m_h = PrebelNew.MODELS  # - np.mean(self.MODELS,axis=0)
+            n_CompPCA_Mod = m_h.shape[1]
+            # n_CompPCA_Mod = n_CompPCA_Mod[1] # Second dimension is the number of components
+            pca_data = sklearn.decomposition.PCA(n_components=varRepresented)
+            d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+            n_CompPCA_Data = d_h.shape[1]
+            if n_CompPCA_Data < n_CompPCA_Mod:
+                if verbose:
+                    print('The data space can be represented with fewer dimensions than the models!')
+                pca_data = sklearn.decomposition.PCA(
+                    n_components=n_CompPCA_Mod)  # Ensure at least the same number of dimensions
+                d_h = pca_data.fit_transform(PrebelNew.FORWARD)
+                n_CompPCA_Data = d_h.shape[1]
+            PrebelNew.PCA = {'Data': pca_data, 'Model': None}
+        # 4) CCA:
+        if verbose:
+            print('Building the CCA space . . .')
+        cca_transform = sklearn.cross_decomposition.CCA(n_components=n_CompPCA_Mod)
+        d_c, m_c = cca_transform.fit_transform(d_h, m_h)
+        PrebelNew.CCA = cca_transform
+        # 5-pre) If dataset already exists:
+        if Dataset is not None:
+            Dataset = np.reshape(Dataset, (1, -1))  # Convert for reverse transform
+            d_obs_h = PrebelNew.PCA['Data'].transform(Dataset)
+            d_obs_c = PrebelNew.CCA.transform(d_obs_h)
+            if NoiseModel is not None:
+                Noise = np.sqrt(Tools.PropagateNoise(PrebelNew, NoiseModel, DatasetIn=Dataset))
+            else:
+                Noise = None
+        # 5) KDE:
+        if verbose:
+            print('Running Kernel Density Estimation . . .')
+        PrebelNew.KDE = KDE(d_c, m_c)
+        if Dataset is None:
+            PrebelNew.KDE.KernelDensity(verbose=verbose)
+        else:
+            PrebelNew.KDE.KernelDensity(XTrue=np.squeeze(d_obs_c),
+                                        verbose=verbose)
+        if verbose:
+            print('PREBEL object build!')
+        return PrebelNew
+
 
     def runMCMC(self, Dataset=None, NoiseModel=None, nbSamples: int = 50000, nbChains: int = 10, verbose: bool = False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
@@ -1456,10 +2225,14 @@ class POSTBEL:
                               not (False - default)
         '''
         self.nbSamples = nbSamples
+        timeGlobalBegin = time.time()
         # Transform dataset to CCA space:
         if verbose:
             print('Projecting the dataset into the CCA space . . .')
-        Dataset = np.reshape(Dataset, (1, -1))  # Convert for reverse transform
+        if np.iscomplexobj(Dataset):
+            Dataset = np.abs(Dataset)
+        Dataset = np.reshape(Dataset, (1, -1))
+        # Convert for reverse transform
         d_obs_h = self.PCA['Data'].transform(Dataset)
         d_obs_c = self.CCA.transform(d_obs_h)
         self.DATA = {'True': Dataset, 'PCA': d_obs_h, 'CCA': d_obs_c}
@@ -1528,6 +2301,37 @@ class POSTBEL:
             if verbose:
                 print('{} models sampled from the posterior model space!'.format(nbSamples))
             self.SAMPLES = Samples
+        if verbose:
+            total_runtime = time.time() - timeGlobalBegin
+            avg_time_per_sample = total_runtime / self.nbSamples if self.nbSamples > 0 else float('nan')
+
+            machine_info = {
+                "OS": platform.system() + " " + platform.release(),
+                "CPU": platform.processor(),
+                "Cores (logical)": psutil.cpu_count(logical=True),
+                "Cores (physical)": psutil.cpu_count(logical=False),
+                "RAM (GB)": round(psutil.virtual_memory().total / (1024 ** 3), 2)
+            }
+
+            report_lines = [
+                               "--- Computational Cost Report (POSTBEL) ---",
+                               f"Total runtime: {total_runtime:.2f} seconds",
+                               f"Average time per sample: {avg_time_per_sample:.4f} seconds",
+                               f"Number of samples computed: {self.nbSamples}",
+                               "Machine info:"
+                           ] + [f"  {k}: {v}" for k, v in machine_info.items()] + [
+                               "---------------------------------"]
+
+            # Print to console
+            for line in report_lines:
+                print(line)
+
+            # Save to timestamped file
+            filename = f"computational_report_POSTBEL_{time.strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(filename, "w") as f:
+                for line in report_lines:
+                    f.write(line + "\n")
+
 
     def runMCMC(self, NoiseModel=None, nbSamples: int = 10000, nbChains=10, verbose: bool = False):
         ''' RUNMCMC is a class method that runs a simple metropolis McMC algorithm
@@ -1975,6 +2779,7 @@ class POSTBEL:
         '''
         from matplotlib import colors
         nbParam = self.SAMPLES.shape[1]
+        print(self.SAMPLES.shape)
         nbLayer = self.MODPARAM.nbLayer
         if (TrueModel is not None) and (len(TrueModel) != nbParam):
             TrueModel = None
@@ -2004,6 +2809,7 @@ class POSTBEL:
                     np.square(np.divide(np.subtract(TrueData, self.SAMPLESDATA), NoiseEstimation)).mean(axis=-1))
                 RMS_scale = RMS
             quantiles = np.divide([stats.percentileofscore(RMS_scale, a, 'strict') for a in RMS], 100)
+            # quantiles = np.linspace(0, 1, len(RMS)) # échelle linéaire, len(RMS) correspond aux nombres de modèles
             sortIndex = np.argsort(RMS)
             sortIndex = np.flip(sortIndex)
         else:
@@ -2037,7 +2843,7 @@ class POSTBEL:
                         for i in sortIndex:
                             axes[j].step(np.append(Param[j + 1][i, :], Param[j + 1][i, -1]),
                                          np.append(np.append(0, Param[0][i, :]), maxDepth), where='pre',
-                                         color=colormap(quantiles[i]))
+                                         color=colormap(quantiles[i])) #
                         if TrueModel is not None:
                             axes[j].step(np.append(TrueMod[j + 1][:], TrueMod[j + 1][-1]),
                                          np.append(np.append(0, TrueMod[0][:]), maxDepth), where='pre', color='red')
@@ -2071,6 +2877,11 @@ class POSTBEL:
                                          np.append(np.append(0, TrueMod[0][:]), maxDepth), where='pre', color='red')
                         axes[j].invert_yaxis()
                         axes[j].set_ylim(bottom=maxDepth, top=0.0)
+                        print("NamesGlobalS:", self.MODPARAM.paramNames["NamesGlobalS"])
+                        print("nbParamUnique:", nbParamUnique)
+                        label_index = min(j + 1, len(self.MODPARAM.paramNames["NamesGlobalS"]) - 1)
+                        # axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][label_index]),
+                        #                    fontsize=14)
                         axes[j].set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][j + 1]), fontsize=14)
                         axes[j].set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["NamesGlobalS"][0]), fontsize=14)
                 else:
@@ -2350,6 +3161,7 @@ class POSTBEL:
             ax.set_xlabel(r'${}$'.format(self.MODPARAM.paramNames["DataAxis"]), fontsize=14)
             ax.set_ylabel(r'${}$'.format(self.MODPARAM.paramNames["DataName"]), fontsize=14)
         else:
+            sortIndex = sortIndex[sortIndex < PlotData.shape[0]]  # added Anso
             for j in sortIndex:
                 ax.plot(self.MODPARAM.forwardFun["Axis"],
                         np.squeeze(PlotData[j, :len(self.MODPARAM.forwardFun["Axis"])]), color='gray')
