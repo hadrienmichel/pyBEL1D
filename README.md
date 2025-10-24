@@ -58,7 +58,7 @@ For further information, see the github of Joseph P. Vantassel [swprocess](https
 pip install swprocess
 ```
 
-Then run the code in this environment (compostifor the example above).
+Then run the code in this environment (composti for the example above).
 
 # Utilization
 All the functions must be in the pyBEL1D folder to run (or you need to import the library, not yet implemented) and respect the folder architecture that is in the repository.
@@ -75,5 +75,6 @@ The forward model for sNMR is provided by [pygimli](https://www.pygimli.org).
 The forward model for Surface Waves dispersion curves is a Python inteface of the Computer programs in seismology (R. Hermans) provided by miili on [github](https://github.com/miili/pysurf96).
 
 The forward model for Scholte wave dispersion is provided by R. Wang on [MSEISFK08](https://github.com/RongjiangWang/MSEISFK_2008/tree/main).
+
 
 
