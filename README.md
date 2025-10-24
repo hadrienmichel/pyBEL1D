@@ -69,7 +69,10 @@ All the functions must be in the pyBEL1D folder to run (or you need to import th
 - The file FWSW_synthetic-example.py provides an application of a synthetic benchmark for dispersion image creation by full wavefield transform and BEL projection.
 - The file FWSW_field-example.py provides a field data application (download S2_field-data.ascii) for dispersion image creation by full wavefield transform and BEL projection.
 
-# Acknowledgement
+# Acknowledgements
 The forward model for sNMR is provided by [pygimli](https://www.pygimli.org).
 
 The forward model for Surface Waves dispersion curves is a Python inteface of the Computer programs in seismology (R. Hermans) provided by miili on [github](https://github.com/miili/pysurf96).
+
+The forward model for Scholte wave dispersion is provided by R. Wang on [MSEISFK08](https://github.com/RongjiangWang/MSEISFK_2008/tree/main).
+
