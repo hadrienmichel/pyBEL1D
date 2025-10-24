@@ -80,14 +80,14 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         #                   ])
 
         # # prior S2 (Mreyen et al. 2021)
-        prior = np.array([[0.001, 0.01, 0.1, 0.3, 0.5, 1.],# 1.5, 3.5],
-                               [0.001, 0.01, 0.2, 0.5, 0.8, 1.5],# 1.5, 3.5],
-                               [0.01, 0.05, 0.25, 0.6, 1.5, 2.5],  # 1.5, 3.5],
-                               [0, 0, 0.5, 0.85, 1.5, 3.5]])#, 1.5, 3.5]])
-        # prior_Q = np.array([[0.001, 0.01, 0.1, 0.3, 0.5, 1.5, 5, 25],
-        #                        [0.001, 0.01, 0.2, 0.5, 0.8, 1.5, 5, 35],
-        #                        [0.01, 0.05, 0.25, 0.6, 1.5, 2.5, 5, 45],
-        #                        [0, 0, 0.5, 0.85, 1.5, 3.5, 5, 55]])
+        # prior = np.array([[0.001, 0.01, 0.1, 0.3, 0.5, 1.],# 1.5, 3.5],
+        #                        [0.001, 0.01, 0.2, 0.5, 0.8, 1.5],# 1.5, 3.5],
+        #                        [0.01, 0.05, 0.25, 0.6, 1.5, 2.5],  # 1.5, 3.5],
+        #                        [0, 0, 0.5, 0.85, 1.5, 3.5]])#, 1.5, 3.5]])
+        prior_Q = np.array([[0.001, 0.01, 0.1, 0.3, 0.5, 1.5, 5, 25],
+                               [0.001, 0.01, 0.2, 0.5, 0.8, 1.5, 5, 35],
+                               [0.01, 0.05, 0.25, 0.6, 1.5, 2.5, 5, 45],
+                               [0, 0, 0.5, 0.85, 1.5, 3.5, 5, 55]])
 
 
         ## MODELS
@@ -98,7 +98,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         Vs = np.asarray([0.180, 0.250, 0.45, 0.65])  # Vs for the 3 layers
         Vp = np.asarray([0.8, 1.1, 2., 2.5])  # Vp for the 3 layers
         # rho = np.asarray([2.5, 2.5, 2.5])  # rho for the 3 layers
-        # Qbetas = np.asarray([5, 10, 20, 30])
+        Qbetas = np.asarray([5, 10, 20, 30])
         nLayer = 4  # Number of layers in the model
 
         model = np.hstack((Thickness, Vs, Vp))#, Qbetas)) #, rho))
@@ -152,8 +152,6 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
         # Ricker source wavelet of 20 Hz, multiple peak frequencies are also possible
         source = source_generator.Ricker(1, 20)
-        # source = source_generator.RickerBis(1, 20, 40)
-
 
         # SETTINGS FOR SW PROCESS
         # (wavefield transform here FK, if want to change -> in BEL1D.py):
@@ -176,7 +174,7 @@ if __name__=="__main__": # To prevent recomputation when in parallel
 
         # choose here your wavefield transform method and normalization
         # for modelled dispersion images during ForwardFWImage, change in BEL1D.py
-        wavefieldTransform = FK.from_array(array=array, settings=settings["processing"])
+        wavefieldTransform = FDBF.from_array(array=array, settings=settings["processing"])
         f = wavefieldTransform.frequencies
         v = wavefieldTransform.velocities
 
@@ -217,13 +215,16 @@ if __name__=="__main__": # To prevent recomputation when in parallel
         ############
 
 
-        ModelsetImage = BEL1D.MODELSET.DC_FW_image(prior=prior, priorDist='Uniform', priorBound=None, fMaxCalc=fMax,
+        ModelsetImage = BEL1D.MODELSET.DC_FW_image(prior=prior_Q, priorDist='Uniform', priorBound=None, fMaxCalc=fMax,
                                                    fMaxImage=fMaxImage, vMax=vMax, xReceivers=xReceivers, source_sw=source_sw,
                                                    Tacq=Tacq, settingsSW=settings,
-                                                   rho_fixed=True, rho_val=2000, propagate_noise=True)#, add_noise_coherent=False)
+                                                   rho_fixed=True, rho_val=2000, 
+                                                   Q=True, Qalphas_fixed=True,
+                                                   propagate_noise=True)#, add_noise_coherent=False)
         dataModel, fSyn, vSyn, u_z_time_cpp_Levin = BEL1D.ForwardFWIMAGE(model=model, nLayer=nLayer, freqCalc=freq,
                                                                          xReceivers=xReceivers, source=source, source_sw=source_sw,
                                                                          options=options, Tacq=Tacq, dt=dt, settingsSW=settings,
+                                                                         normalization='absolute-maximum', Q=True, Qalphas_fixed=True,
                                                                          showIm=True, returnAxis=True, rho_fixed=True, rho_val=2000,
                                                                          return_raw=True)#, add_noise=1e-9)#, add_noise_coherent=False)#, add_noise=1e-10)
 
