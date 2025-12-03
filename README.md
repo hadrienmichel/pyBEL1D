@@ -18,11 +18,14 @@ conda install scipy
 conda install scikit-learn
 conda install matplotlib
 conda install -c anaconda dill
+
 # For multiprocessing:
 pip install pathos
+
 # For the sNMR application
 conda config --add channels gimli --add channels conda-forge
 conda install pygimli
+
 # For DC application:
 conda install libpython
 conda install -c msys2 m2w64-toolchain
@@ -35,13 +38,27 @@ conda install -c anaconda gfortran_osx-64
 pip install git+https://github.com/miili/pysurf96
 ```
 
-On Linux machines, run (not tested):
+On Linux machines run (not tested):
 ```
 conda install -c anaconda gfortran_linux-64
 pip install git+https://github.com/miili/pysurf96
 ```
 
-Then run the code in this environment (bel1d for the example above).
+For FWSW (full wavefield surface wave) application:
+
+1 - composti:
+
+We refer to the github of Matti Niskanen [composti](https://github.com/ElsevierSoftwareX/SOFTX-D-22-00104)
+and recommend to follow the installation steps suggested therein.
+
+2 - swprocess:
+
+For further information, see the github of Joseph P. Vantassel [swprocess](https://github.com/jpvantassel/swprocess). 
+```
+pip install swprocess
+```
+
+Then run the code in this environment (composti for the example above).
 
 # Utilization
 All the functions must be in the pyBEL1D folder to run (or you need to import the library, not yet implemented) and respect the folder architecture that is in the repository.
@@ -49,8 +66,15 @@ All the functions must be in the pyBEL1D folder to run (or you need to import th
 - The file MASW_paper.py containes a highely detailed and commented exemple on how to run BEL1D with IPR and post-process the results.
 - The file exampleSNMR.py provides a commented example on how to run the codes for SNMR data.
 - The file exampleDC.py provides an example on how to use BEL1D with a dispersion curve originating from real data.
+- The file FWSW_synthetic-example.py provides an application of a synthetic benchmark for dispersion image creation by full wavefield transform and BEL projection.
+- The file FWSW_field-example.py provides a field data application (download S2_field-data.ascii) for dispersion image creation by full wavefield transform and BEL projection.
 
-# Acknowledgement
+# Acknowledgements
 The forward model for sNMR is provided by [pygimli](https://www.pygimli.org).
 
 The forward model for Surface Waves dispersion curves is a Python inteface of the Computer programs in seismology (R. Hermans) provided by miili on [github](https://github.com/miili/pysurf96).
+
+The forward model for Scholte wave dispersion is provided by R. Wang on [MSEISFK08](https://github.com/RongjiangWang/MSEISFK_2008/tree/main).
+
+
+
